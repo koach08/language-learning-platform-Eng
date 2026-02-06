@@ -1,0 +1,34 @@
+# ============================================================
+# English Learning Platform - Dependencies
+# ============================================================
+
+# Core Framework
+streamlit>=1.31.0
+
+# Supabase
+supabase>=2.3.0
+
+# OpenAI
+openai>=1.12.0
+
+# Audio Processing
+pydub>=0.25.1
+soundfile>=0.12.1
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# HTTP Requests
+httpx>=0.26.0
+requests>=2.31.0
+
+# Utilities
+python-dotenv>=1.0.0
+Pillow>=10.0.0
+
+# Date/Time
+python-dateutil>=2.8.2
+
+# For audio format conversion (optional, needs ffmpeg)
+# ffmpeg-python>=0.2.0
