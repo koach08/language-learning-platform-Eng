@@ -31,8 +31,6 @@ if not st.session_state.get("authenticated"):
                 st.session_state["user"] = user_info
                 st.session_state["authenticated"] = True
                 st.rerun()
-    </script>
-    """, height=0)
 
 if "user" not in st.session_state:
     st.session_state.user = None
