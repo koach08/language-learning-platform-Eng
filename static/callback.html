@@ -5,19 +5,20 @@
 <p>ログイン処理中です...</p>
 <script>
 const hash = window.location.hash.substring(1);
+const baseUrl = window.location.origin;
 if (hash && hash.includes('access_token')) {
     const params = new URLSearchParams(hash);
     const accessToken = params.get('access_token');
     const refreshToken = params.get('refresh_token');
     if (accessToken) {
-        let url = 'http://localhost:8501/?access_token=' + encodeURIComponent(accessToken);
+        let url = baseUrl + '/?access_token=' + encodeURIComponent(accessToken);
         if (refreshToken) {
             url += '&refresh_token=' + encodeURIComponent(refreshToken);
         }
         window.location.replace(url);
     }
 } else {
-    window.location.replace('http://localhost:8501/');
+    window.location.replace(baseUrl + '/');
 }
 </script>
 </body>
