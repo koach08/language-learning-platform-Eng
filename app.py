@@ -17,17 +17,18 @@ if handle_oauth_callback():
     st.rerun()
 
 # Handle hash fragment from Supabase OAuth
-import streamlit.components.v1 as components
-components.html(
-    "<script>"
-    "var h=window.parent.location.hash;"
-    "if(h && h.indexOf('access_token')>-1){"
-    "var p=new URLSearchParams(h.substring(1));"
-    "var t=p.get('access_token');"
-    "if(t){window.parent.location.search='?access_token='+encodeURIComponent(t);}}"
-    "</script>",
-    height=0,
-)
+if not st.session_state.get("authenticated"):
+    import streamlit.components.v1 as components
+    components.html(
+        "<script>"
+        "var h=window.parent.location.hash;"
+        "if(h && h.indexOf('access_token')>-1){"
+        "var p=new URLSearchParams(h.substring(1));"
+        "var t=p.get('access_token');"
+        "if(t){window.parent.location.search='?access_token='+encodeURIComponent(t);}}"
+        "</script>",
+        height=0,
+    )
 
 if "user" not in st.session_state:
     st.session_state.user = None
