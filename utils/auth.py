@@ -12,7 +12,6 @@ def get_auth_url() -> str:
     params = {
         "provider": "google",
         "redirect_to": redirect_url,
-        "flow_type": "pkce",
     }
     return f"{auth_url}?{urllib.parse.urlencode(params)}"
 
@@ -65,27 +64,6 @@ def _get_user_from_token(access_token: str) -> Optional[Dict]:
     except Exception as e:
         st.error(f"User info error: {e}")
         return None
-
-def inject_oauth_handler():
-    import streamlit.components.v1 as components
-    components.html("""
-    <script>
-    const hash = window.parent.document.location.hash;
-    if (hash && hash.includes('access_token')) {
-        const params = new URLSearchParams(hash.substring(1));
-        const accessToken = params.get('access_token');
-        const refreshToken = params.get('refresh_token');
-        if (accessToken) {
-            const base = window.parent.document.location.pathname;
-            let newUrl = base + '?access_token=' + encodeURIComponent(accessToken);
-            if (refreshToken) {
-                newUrl += '&refresh_token=' + encodeURIComponent(refreshToken);
-            }
-            window.parent.document.location.replace(newUrl);
-        }
-    }
-    </script>
-    """, height=0, width=0)
 
 def login_with_google():
     auth_url = get_auth_url()

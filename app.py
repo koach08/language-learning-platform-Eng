@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 from utils.auth import (
-    get_current_user, logout, inject_oauth_handler, handle_oauth_callback,
+    get_current_user, logout, handle_oauth_callback,
 )
 
 # OAuth callback handling
@@ -102,12 +102,12 @@ if user:
                 st.session_state["current_view"] = "course_settings"
                 st.rerun()
             st.markdown("---")
-            st.markdown("#### 👁️ プレビュー")
+            st.markdown("#### 👁 プレビュー")
             st.caption("学生画面を確認")
             if st.button("🗣️ Speaking", use_container_width=True):
                 st.session_state["current_view"] = "speaking"
                 st.rerun()
-            if st.button("✍️ Writing", use_container_width=True):
+            if st.button("✏️ Writing", use_container_width=True):
                 st.session_state["current_view"] = "writing"
                 st.rerun()
             if st.button("📚 Vocabulary", use_container_width=True):
@@ -150,7 +150,7 @@ if user:
                     st.session_state["current_view"] = "speaking"
                     st.rerun()
             if "writing" in enabled:
-                if st.button("✍️ Writing", use_container_width=True):
+                if st.button("✏️ Writing", use_container_width=True):
                     st.session_state["current_view"] = "writing"
                     st.rerun()
             if "vocabulary" in enabled:
@@ -170,7 +170,7 @@ if user:
                     st.session_state["current_view"] = "test_prep"
                     st.rerun()
             st.markdown("---")
-            st.markdown("#### 🔍 辞書")
+            st.markdown("#### 📝 辞書")
             try:
                 from utils.dictionary import show_dictionary_popup
                 show_dictionary_popup(word_key="sidebar_dict")
@@ -238,7 +238,7 @@ def show_word_book_view():
         st.session_state["current_view"] = "student_home"
         st.rerun()
     st.markdown("---")
-    tab1, tab2, tab3 = st.tabs(["🧠 復習 (SRS)", "📖 単語帳", "🔍 辞書検索"])
+    tab1, tab2, tab3 = st.tabs(["🧠 復習 (SRS)", "📖 単語帳", "📝 辞書検索"])
     with tab1:
         try:
             from utils.srs import show_srs_review
