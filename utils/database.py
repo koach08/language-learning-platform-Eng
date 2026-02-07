@@ -7,7 +7,26 @@ Supabase Database Client
 import streamlit as st
 from supabase import create_client, Client
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timedelta
+
+
+# ============================================================
+# Cache Helpers
+# ============================================================
+
+def clear_course_cache(course_id: str = None):
+    """コース関連キャッシュをクリア（課題作成・更新後に呼ぶ）"""
+    _get_course_cached.clear()
+    _get_course_assignments_cached.clear()
+    _get_writing_assignments_cached.clear()
+    _get_speaking_materials_cached.clear()
+    _get_speaking_rubric_cached.clear()
+
+def clear_student_cache(student_id: str = None):
+    """学生関連キャッシュをクリア"""
+    _get_student_courses_cached.clear()
+    _get_student_practice_stats_cached.clear()
+    _get_vocabulary_stats_cached.clear()
 
 
 def get_supabase_client() -> Client:
@@ -77,7 +96,11 @@ def get_or_create_user(email: str, name: str, profile_image_url: str = None) -> 
 # ============================================================
 
 def get_teacher_courses(teacher_id: str) -> List[Dict]:
-    """教員の担当コースを取得"""
+    """教員の担当コースを取得（キャッシュ付き）"""
+    return _get_teacher_courses_cached(teacher_id)
+
+@st.cache_data(ttl=120)
+def _get_teacher_courses_cached(teacher_id: str) -> List[Dict]:
     supabase = get_supabase_client()
     result = supabase.table('courses')\
         .select('*')\
@@ -89,7 +112,11 @@ def get_teacher_courses(teacher_id: str) -> List[Dict]:
 
 
 def get_student_courses(student_id: str) -> List[Dict]:
-    """学生の履修コースを取得"""
+    """学生の履修コースを取得（キャッシュ付き）"""
+    return _get_student_courses_cached(student_id)
+
+@st.cache_data(ttl=120)
+def _get_student_courses_cached(student_id: str) -> List[Dict]:
     supabase = get_supabase_client()
     result = supabase.table('enrollments')\
         .select('*, courses(*)')\
@@ -111,11 +138,16 @@ def create_course(teacher_id: str, name: str, year: int, semester: str,
         **kwargs
     }
     result = supabase.table('courses').insert(course_data).execute()
+    clear_course_cache()  # キャッシュクリア
     return result.data[0] if result.data else None
 
 
 def get_course(course_id: str) -> Optional[Dict]:
-    """コースを取得"""
+    """コースを取得（キャッシュ付き）"""
+    return _get_course_cached(course_id)
+
+@st.cache_data(ttl=300)  # 5分キャッシュ
+def _get_course_cached(course_id: str) -> Optional[Dict]:
     supabase = get_supabase_client()
     result = supabase.table('courses').select('*').eq('id', course_id).execute()
     return result.data[0] if result.data else None
@@ -126,6 +158,7 @@ def update_course(course_id: str, updates: Dict) -> Dict:
     supabase = get_supabase_client()
     updates['updated_at'] = datetime.utcnow().isoformat()
     result = supabase.table('courses').update(updates).eq('id', course_id).execute()
+    clear_course_cache(course_id)  # キャッシュクリア
     return result.data[0] if result.data else None
 
 
@@ -178,11 +211,16 @@ def create_assignment(course_id: str, title: str, assignment_type: str, **kwargs
         **kwargs
     }
     result = supabase.table('assignments').insert(assignment_data).execute()
+    clear_course_cache(course_id)  # キャッシュクリア
     return result.data[0] if result.data else None
 
 
 def get_course_assignments(course_id: str, published_only: bool = False) -> List[Dict]:
-    """コースの課題一覧を取得"""
+    """コースの課題一覧を取得（キャッシュ付き）"""
+    return _get_course_assignments_cached(course_id, published_only)
+
+@st.cache_data(ttl=120)
+def _get_course_assignments_cached(course_id: str, published_only: bool = False) -> List[Dict]:
     supabase = get_supabase_client()
     query = supabase.table('assignments').select('*').eq('course_id', course_id)
     if published_only:
@@ -397,9 +435,12 @@ def log_practice(student_id: str, module_type: str,
 
 
 def get_student_practice_stats(student_id: str, days: int = 30) -> Dict:
-    """学生の練習統計を取得"""
+    """学生の練習統計を取得（キャッシュ付き）"""
+    return _get_student_practice_stats_cached(student_id, days)
+
+@st.cache_data(ttl=60)  # 1分キャッシュ（頻繁に更新される）
+def _get_student_practice_stats_cached(student_id: str, days: int = 30) -> Dict:
     supabase = get_supabase_client()
-    from datetime import timedelta
     since = (datetime.utcnow() - timedelta(days=days)).isoformat()
     
     result = supabase.table('practice_logs')\
@@ -465,7 +506,12 @@ def create_speaking_material(teacher_id: str, title: str, text: str,
 
 def get_speaking_materials(teacher_id: str = None, course_id: str = None,
                            active_only: bool = True) -> List[Dict]:
-    """Speaking教材一覧を取得"""
+    """Speaking教材一覧を取得（キャッシュ付き）"""
+    return _get_speaking_materials_cached(teacher_id, course_id, active_only)
+
+@st.cache_data(ttl=300)
+def _get_speaking_materials_cached(teacher_id: str = None, course_id: str = None,
+                                    active_only: bool = True) -> List[Dict]:
     supabase = get_supabase_client()
     query = supabase.table('speaking_materials').select('*')
     if teacher_id:
@@ -541,7 +587,11 @@ def delete_ai_generated_text(text_id: str) -> bool:
 # ============================================================
 
 def get_speaking_rubric(course_id: str) -> Optional[Dict]:
-    """コースの評価基準を取得"""
+    """コースの評価基準を取得（キャッシュ付き）"""
+    return _get_speaking_rubric_cached(course_id)
+
+@st.cache_data(ttl=300)
+def _get_speaking_rubric_cached(course_id: str) -> Optional[Dict]:
     supabase = get_supabase_client()
     result = supabase.table('speaking_rubrics').select('*').eq('course_id', course_id).execute()
     return result.data[0] if result.data else None
@@ -858,7 +908,11 @@ def get_writing_history(student_id: str, limit: int = 30) -> List[Dict]:
 
 
 def get_writing_assignments(course_id: str) -> List[Dict]:
-    """ライティング課題一覧を取得"""
+    """ライティング課題一覧を取得（キャッシュ付き）"""
+    return _get_writing_assignments_cached(course_id)
+
+@st.cache_data(ttl=120)
+def _get_writing_assignments_cached(course_id: str) -> List[Dict]:
     supabase = get_supabase_client()
     result = supabase.table('assignments')\
         .select('*')\
@@ -907,7 +961,11 @@ def get_student_vocabulary(student_id: str, limit: int = 200) -> List[Dict]:
 
 
 def get_vocabulary_stats(student_id: str) -> Dict:
-    """語彙学習統計を取得"""
+    """語彙学習統計を取得（キャッシュ付き）"""
+    return _get_vocabulary_stats_cached(student_id)
+
+@st.cache_data(ttl=60)
+def _get_vocabulary_stats_cached(student_id: str) -> Dict:
     supabase = get_supabase_client()
     all_vocab = supabase.table('vocabulary')\
         .select('mastery_level, repetitions, last_reviewed')\

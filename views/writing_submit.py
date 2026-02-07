@@ -150,52 +150,91 @@ def show_student_view():
 
 
 def show_assignment_submission():
-    """課題提出モード"""
+    """課題提出モード（実データ優先、フォールバックでデモデータ）"""
     
     st.markdown("### 📋 課題一覧 / Assignments")
     
-    demo_assignments = [
-        {
-            "id": 1,
-            "title": "自己紹介エッセイ / Self-introduction Essay",
-            "type": "essay",
-            "instructions": "自分自身について紹介するエッセイを書いてください。/ Write an essay introducing yourself.",
-            "min_words": 100,
-            "max_words": 200,
-            "due": "2024/2/15",
-            "required": True
-        },
-        {
-            "id": 2,
-            "title": "スピーチ原稿 / Speech Script",
-            "type": "speech",
-            "instructions": "3分間のスピーチ原稿を書いてください。トピックは自由です。/ Write a 3-minute speech script on any topic.",
-            "min_words": 200,
-            "max_words": 400,
-            "due": "2024/2/22",
-            "required": True
-        },
-        {
-            "id": 3,
-            "title": "メール練習（任意）/ Email Practice (Optional)",
-            "type": "email",
-            "instructions": "教授に質問するメールを書いてください。/ Write an email to ask your professor a question.",
-            "min_words": 50,
-            "max_words": 150,
-            "due": "-",
-            "required": False
-        },
-    ]
+    # --- Supabaseから実課題を取得 ---
+    user = get_current_user()
+    course_id = st.session_state.get('current_course', {}).get('id')
+    real_assignments = []
+    is_demo = False
+    
+    if course_id:
+        try:
+            raw = get_writing_assignments(course_id)
+            for a in raw:
+                config = a.get('config', {}) or {}
+                real_assignments.append({
+                    "id": a['id'],
+                    "title": a.get('title', 'Untitled'),
+                    "type": config.get('task_type', 'free_writing'),
+                    "instructions": a.get('instructions', ''),
+                    "min_words": config.get('min_words', 0),
+                    "max_words": config.get('max_words', 500),
+                    "due": a.get('due_date', '-') or '-',
+                    "required": config.get('is_required', True),
+                    "db_id": a['id'],  # Supabaseの実ID
+                })
+        except Exception:
+            pass
+    
+    if real_assignments:
+        assignments = real_assignments
+    else:
+        # デモデータ（サンプルガイド用）
+        is_demo = True
+        assignments = [
+            {
+                "id": "demo_1",
+                "title": "自己紹介エッセイ / Self-introduction Essay",
+                "type": "essay",
+                "instructions": "自分自身について紹介するエッセイを書いてください。/ Write an essay introducing yourself.",
+                "min_words": 100,
+                "max_words": 200,
+                "due": "2026/5/15",
+                "required": True,
+                "db_id": None,
+            },
+            {
+                "id": "demo_2",
+                "title": "スピーチ原稿 / Speech Script",
+                "type": "speech",
+                "instructions": "3分間のスピーチ原稿を書いてください。トピックは自由です。/ Write a 3-minute speech script on any topic.",
+                "min_words": 200,
+                "max_words": 400,
+                "due": "2026/5/22",
+                "required": True,
+                "db_id": None,
+            },
+            {
+                "id": "demo_3",
+                "title": "メール練習（任意）/ Email Practice (Optional)",
+                "type": "email",
+                "instructions": "教授に質問するメールを書いてください。/ Write an email to ask your professor a question.",
+                "min_words": 50,
+                "max_words": 150,
+                "due": "-",
+                "required": False,
+                "db_id": None,
+            },
+        ]
+    
+    if is_demo:
+        st.info("📖 まだ課題が登録されていません。以下はサンプル課題です。\n\nNo assignments registered yet. Below are sample assignments for reference.")
     
     selected = st.selectbox(
         "課題を選択 / Select assignment",
-        demo_assignments,
+        assignments,
         format_func=lambda x: f"{'📌' if x['required'] else '📝'} {x['title']} (期限: {x['due']})"
     )
     
     if selected:
         st.markdown("---")
         st.markdown(f"### {'📌' if selected['required'] else '📝'} {selected['title']}")
+        
+        if is_demo:
+            st.caption("📖 サンプル課題 / Sample assignment — 提出は記録されますが課題としては未連携です")
         
         if not selected['required']:
             st.caption("🔓 This is optional practice / これは任意の練習です")
@@ -283,9 +322,9 @@ def show_assignment_submission():
         if text:
             word_count = len(text.split())
             
-            if word_count < selected['min_words']:
+            if selected['min_words'] > 0 and word_count < selected['min_words']:
                 st.warning(f"⚠️ 語数 / Words: {word_count} / 最低 Min: {selected['min_words']}")
-            elif word_count > selected['max_words']:
+            elif selected['max_words'] > 0 and word_count > selected['max_words']:
                 st.warning(f"⚠️ 語数 / Words: {word_count} / 最大 Max: {selected['max_words']} を超えています")
             else:
                 st.success(f"✅ 語数 / Words: {word_count} ({selected['min_words']}〜{selected['max_words']})")
@@ -306,20 +345,21 @@ def show_assignment_submission():
                     show_evaluation_result(result)
                     
                     # --- Supabaseに保存 ---
-                    user = get_current_user()
                     try:
                         save_writing_submission(
                             student_id=user['id'],
-                            assignment_id=None,  # デモ課題なのでNone
+                            assignment_id=selected.get('db_id'),  # 実課題ならID、デモならNone
                             text=text,
                             task_type=selected['type'],
                             word_count=len(text.split()),
                             scores=result.get('scores', {}),
                             feedback=format_writing_feedback(result, show_full=True),
                             cefr_level=result.get('cefr_level', ''),
-                            is_practice=False,
-                            course_id=st.session_state.get('current_course', {}).get('id'),
+                            is_practice=is_demo,  # デモ課題なら練習扱い
+                            course_id=course_id,
                         )
+                        if not is_demo:
+                            st.success("✅ 提出が記録されました / Submission saved")
                     except Exception as e:
                         st.caption(f"⚠️ DB保存エラー: {e}")
                 else:

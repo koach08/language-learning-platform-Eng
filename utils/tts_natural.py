@@ -152,7 +152,7 @@ def _generate_openai_tts(text, voice_key=DEFAULT_VOICE, speed=1.0):
     
     try:
         response = client.audio.speech.create(
-            model="tts-1-hd",
+            model="tts-1",
             voice=voice_name,
             input=text[:4096],
             speed=speed
