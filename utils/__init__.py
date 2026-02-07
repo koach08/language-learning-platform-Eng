@@ -61,7 +61,7 @@ __all__ = [
     'require_teacher',
     'require_student',
     'handle_oauth_callback',
-    'inject_oauth_handler',
+
     
     # Database
     'get_supabase_client',
