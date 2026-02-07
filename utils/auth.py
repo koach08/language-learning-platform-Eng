@@ -9,7 +9,11 @@ def get_auth_url() -> str:
     supabase_url = st.secrets["supabase"]["url"]
     redirect_url = _get_redirect_url()
     auth_url = f"{supabase_url}/auth/v1/authorize"
-    params = {"provider": "google", "redirect_to": redirect_url}
+    params = {
+        "provider": "google",
+        "redirect_to": redirect_url,
+        "flow_type": "pkce",
+    }
     return f"{auth_url}?{urllib.parse.urlencode(params)}"
 
 def _get_redirect_url() -> str:

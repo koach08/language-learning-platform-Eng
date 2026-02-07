@@ -16,6 +16,21 @@ inject_oauth_handler()
 if handle_oauth_callback():
     st.rerun()
 
+if not st.session_state.get("authenticated"):
+    import streamlit.components.v1 as components
+    components.html("""
+    <script>
+    const hash = window.parent.location.hash;
+    if (hash && hash.includes('access_token')) {
+        const params = new URLSearchParams(hash.substring(1));
+        const token = params.get('access_token');
+        if (token) {
+            window.parent.location.href = window.parent.location.origin + '/?access_token=' + encodeURIComponent(token);
+        }
+    }
+    </script>
+    """, height=0)
+
 if "user" not in st.session_state:
     st.session_state.user = None
 if "current_view" not in st.session_state:
