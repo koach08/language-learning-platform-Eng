@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head><title>ログイン中...</title></head>
+<body>
+<p>ログイン処理中です...</p>
+<script>
+var h = window.location.hash.substring(1);
+if (h && h.indexOf('access_token') > -1) {
+    var p = new URLSearchParams(h);
+    var t = p.get('access_token');
+    if (t) {
+        window.location.replace('https://language-learning-platform-eng.streamlit.app/?access_token=' + encodeURIComponent(t));
+    }
+} else {
+    window.location.replace('https://language-learning-platform-eng.streamlit.app/');
+}
+</script>
+</body>
+</html>
