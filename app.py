@@ -14,23 +14,8 @@ from utils.auth import (
 # OAuth callback handling
 if handle_oauth_callback():
     st.rerun()
-
-# Hash fragment handling for Streamlit Cloud
-if not st.session_state.get("authenticated"):
-    from streamlit_javascript import st_javascript
-    hash_val = st_javascript("window.location.hash")
-    if hash_val and "access_token" in str(hash_val):
-        from urllib.parse import parse_qs
-        params = parse_qs(str(hash_val).lstrip("#"))
-        token = params.get("access_token", [None])[0]
-        if token:
-            st.session_state["access_token"] = token
-            from utils.auth import _get_user_from_token
-            user_info = _get_user_from_token(token)
-            if user_info:
-                st.session_state["user"] = user_info
-                st.session_state["authenticated"] = True
-                st.rerun()
+    </script>
+    """, height=0)
 
 if "user" not in st.session_state:
     st.session_state.user = None
