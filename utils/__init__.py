@@ -15,7 +15,6 @@ from .auth import (
     require_teacher,
     require_student,
     handle_oauth_callback,
-    inject_oauth_handler
 )
 
 from .database import (
