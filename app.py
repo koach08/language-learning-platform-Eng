@@ -11,23 +11,26 @@ from utils.auth import (
     get_current_user, logout, inject_oauth_handler, handle_oauth_callback,
 )
 
-inject_oauth_handler()
-
+# OAuth callback handling
 if handle_oauth_callback():
     st.rerun()
 
+# Hash fragment handling for Streamlit Cloud
 if not st.session_state.get("authenticated"):
-    import streamlit.components.v1 as components
-    components.html("""
-    <script>
-    const hash = window.parent.location.hash;
-    if (hash && hash.includes('access_token')) {
-        const params = new URLSearchParams(hash.substring(1));
-        const token = params.get('access_token');
-        if (token) {
-            window.parent.location.href = window.parent.location.origin + '/?access_token=' + encodeURIComponent(token);
-        }
-    }
+    from streamlit_javascript import st_javascript
+    hash_val = st_javascript("window.location.hash")
+    if hash_val and "access_token" in str(hash_val):
+        from urllib.parse import parse_qs
+        params = parse_qs(str(hash_val).lstrip("#"))
+        token = params.get("access_token", [None])[0]
+        if token:
+            st.session_state["access_token"] = token
+            from utils.auth import _get_user_from_token
+            user_info = _get_user_from_token(token)
+            if user_info:
+                st.session_state["user"] = user_info
+                st.session_state["authenticated"] = True
+                st.rerun()
     </script>
     """, height=0)
 
