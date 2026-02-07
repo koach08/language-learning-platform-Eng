@@ -14,8 +14,6 @@ from utils.auth import (
 # OAuth callback handling
 if handle_oauth_callback():
     st.rerun()
-    </script>
-    """, height=0)
 
 if "user" not in st.session_state:
     st.session_state.user = None
