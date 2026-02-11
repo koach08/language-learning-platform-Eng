@@ -21,6 +21,7 @@ def clear_course_cache(course_id: str = None):
     _get_writing_assignments_cached.clear()
     _get_speaking_materials_cached.clear()
     _get_speaking_rubric_cached.clear()
+    _get_course_settings_cached.clear()
 
 def clear_student_cache(student_id: str = None):
     """学生関連キャッシュをクリア"""
@@ -612,7 +613,52 @@ def upsert_speaking_rubric(course_id: str, criteria: Dict,
     result = supabase.table('speaking_rubrics').upsert(
         data, on_conflict='course_id'
     ).execute()
+    _get_speaking_rubric_cached.clear()
     return result.data[0] if result.data else None
+
+
+# ============================================================
+# Course Settings Operations (course_settings 専用テーブル)
+# ============================================================
+
+def get_course_settings(course_id: str) -> Optional[Dict]:
+    """コース設定を取得（キャッシュ付き）。なければNone"""
+    return _get_course_settings_cached(course_id)
+
+@st.cache_data(ttl=120)
+def _get_course_settings_cached(course_id: str) -> Optional[Dict]:
+    supabase = get_supabase_client()
+    result = supabase.table('course_settings')\
+        .select('*').eq('course_id', course_id).execute()
+    return result.data[0] if result.data else None
+
+
+def upsert_course_settings(course_id: str, updates: Dict) -> Dict:
+    """コース設定を作成/更新（部分更新対応）
+    
+    updates に含まれるキーだけを更新する。
+    例: upsert_course_settings(cid, {"purpose": "...", "modules": {...}})
+    """
+    supabase = get_supabase_client()
+    data = {
+        'course_id': course_id,
+        **updates,
+        'updated_at': datetime.utcnow().isoformat()
+    }
+    result = supabase.table('course_settings').upsert(
+        data, on_conflict='course_id'
+    ).execute()
+    _get_course_settings_cached.clear()
+    return result.data[0] if result.data else None
+
+
+def update_course_settings_field(course_id: str, field: str, value: Any) -> Dict:
+    """コース設定の特定フィールドだけを更新するヘルパー
+    
+    例: update_course_settings_field(cid, "purpose", "4技能バランス型")
+    例: update_course_settings_field(cid, "speaking_rubrics", {...})
+    """
+    return upsert_course_settings(course_id, {field: value})
 
 
 # ============================================================

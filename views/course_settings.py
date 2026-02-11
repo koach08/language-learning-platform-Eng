@@ -1,83 +1,50 @@
+"""
+Course Settings - 教員カスタマイズ機能
+======================================
+科目設定を course_settings 専用テーブルに永続化。
+
+テーブル構造 (course_settings):
+- purpose          TEXT     科目の目的
+- modules          JSONB    モジュールON/OFF・配分
+- speaking_rubrics JSONB    Speaking評価基準（タスクタイプ別）
+- writing_rubrics  JSONB    Writing評価基準（タスクタイプ別）
+- practice_menu    JSONB    練習メニュー設定
+- grade_settings   JSONB    成績配分
+"""
+
 import streamlit as st
 from utils.auth import get_current_user, require_auth
-
-@require_auth
-def show():
-    user = get_current_user()
-    
-    st.markdown("## ⚙️ 科目設定")
-    
-    if st.button("← 教員ホームに戻る"):
-        st.session_state['current_view'] = 'teacher_home'
-        st.rerun()
-    
-    st.markdown("---")
-    
-    # 現在のクラス
-    selected_class = st.session_state.get('selected_class', 'english_specific_a')
-    classes = st.session_state.get('teacher_classes', {})
-    
-    if selected_class in classes:
-        current_class = classes[selected_class]
-        st.info(f"📚 **{current_class['name']}** の設定")
-    
-    # デモ用設定データ
-    if 'course_settings' not in st.session_state:
-        st.session_state.course_settings = {
-            "english_specific_a": {
-                "purpose": "アウトプット力（話す・書く）の向上",
-                "modules": {
-                    "speaking": {"enabled": True, "weight": 50},
-                    "writing": {"enabled": True, "weight": 30},
-                    "pronunciation": {"enabled": True, "weight": 20},
-                    "listening": {"enabled": False, "weight": 0},
-                    "reading": {"enabled": False, "weight": 0},
-                    "vocabulary": {"enabled": True, "weight": 0},
-                },
-                "speaking_rubrics": get_default_speaking_rubrics(),
-                "writing_rubrics": get_default_writing_rubrics(),
-                "practice_menu": {},
-                "grade_settings": {
-                    "assignment_weight": 50,
-                    "practice_weight": 20,
-                    "final_test_weight": 20,
-                    "participation_weight": 10,
-                }
-            }
-        }
-    
-    settings = st.session_state.course_settings.get(selected_class, {})
-    
-    # タブで分類
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📌 科目の目的", 
-        "📦 モジュール設定", 
-        "🗣️ Speaking評価基準",
-        "✍️ Writing評価基準",
-        "📋 練習メニュー", 
-        "📊 成績配分"
-    ])
-    
-    with tab1:
-        show_purpose_settings(selected_class, settings)
-    
-    with tab2:
-        show_module_settings(selected_class, settings)
-    
-    with tab3:
-        show_speaking_rubrics(selected_class, settings)
-    
-    with tab4:
-        show_writing_rubrics(selected_class, settings)
-    
-    with tab5:
-        show_practice_menu_settings(selected_class, settings)
-    
-    with tab6:
-        show_grade_settings(selected_class, settings)
+from utils.database import (
+    get_course_settings,
+    upsert_course_settings,
+    update_course_settings_field,
+)
 
 
-def get_default_speaking_rubrics():
+# ============================================================
+# デフォルト値
+# ============================================================
+
+DEFAULT_PURPOSE = "アウトプット力（話す・書く）の向上"
+
+DEFAULT_MODULES = {
+    "speaking": {"enabled": True, "weight": 50},
+    "writing": {"enabled": True, "weight": 30},
+    "pronunciation": {"enabled": True, "weight": 20},
+    "listening": {"enabled": False, "weight": 0},
+    "reading": {"enabled": False, "weight": 0},
+    "vocabulary": {"enabled": True, "weight": 0},
+}
+
+DEFAULT_GRADE_SETTINGS = {
+    "assignment_weight": 50,
+    "practice_weight": 20,
+    "final_test_weight": 20,
+    "participation_weight": 10,
+}
+
+
+def get_default_speaking_rubrics() -> dict:
     """Speaking評価基準のデフォルト"""
     return {
         "reading_aloud": {
@@ -121,7 +88,7 @@ def get_default_speaking_rubrics():
     }
 
 
-def get_default_writing_rubrics():
+def get_default_writing_rubrics() -> dict:
     """Writing評価基準のデフォルト"""
     return {
         "essay": {
@@ -165,337 +132,372 @@ def get_default_writing_rubrics():
     }
 
 
-def show_speaking_rubrics(class_key, settings):
-    """Speaking評価基準のカスタマイズ"""
-    
-    st.markdown("### 🗣️ Speaking評価基準")
-    st.caption("課題タイプごとに評価の重み付けをカスタマイズできます")
-    
-    rubrics = settings.get("speaking_rubrics", get_default_speaking_rubrics())
-    
-    # 課題タイプ選択
-    task_type = st.selectbox(
-        "課題タイプを選択",
-        list(rubrics.keys()),
-        format_func=lambda x: rubrics[x]["name"]
-    )
-    
-    st.markdown("---")
-    
-    current_rubric = rubrics[task_type]
-    st.markdown(f"#### 📋 {current_rubric['name']} の評価基準")
-    
-    # プリセット選択
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if st.button("🔄 デフォルトに戻す"):
-            default = get_default_speaking_rubrics()
-            rubrics[task_type] = default[task_type]
-            st.session_state.course_settings[class_key]["speaking_rubrics"] = rubrics
-            st.rerun()
-    
-    st.markdown("---")
-    
-    # 評価基準の編集
-    new_criteria = {}
-    total_weight = 0
-    
-    for key, criterion in current_rubric["criteria"].items():
-        col1, col2, col3 = st.columns([3, 1, 1])
-        
-        with col1:
-            st.markdown(f"**{criterion['name']}**")
-            st.caption(criterion['desc'])
-        
-        with col2:
-            weight = st.number_input(
-                "配分%",
-                min_value=0,
-                max_value=100,
-                value=criterion['weight'],
-                key=f"speak_{task_type}_{key}",
-                label_visibility="collapsed"
-            )
-        
-        with col3:
-            st.markdown(f"**{weight}%**")
-        
-        new_criteria[key] = {
-            "name": criterion['name'],
-            "weight": weight,
-            "desc": criterion['desc']
+# ============================================================
+# ヘルパー: DBからロードしてデフォルトとマージ
+# ============================================================
+
+def _load_settings(course_id: str) -> dict:
+    """DBから設定を取得し、未設定項目にはデフォルトを適用"""
+    row = get_course_settings(course_id)
+    if row is None:
+        return {
+            "purpose": DEFAULT_PURPOSE,
+            "modules": DEFAULT_MODULES,
+            "speaking_rubrics": get_default_speaking_rubrics(),
+            "writing_rubrics": get_default_writing_rubrics(),
+            "practice_menu": {},
+            "grade_settings": DEFAULT_GRADE_SETTINGS,
         }
-        total_weight += weight
-    
-    st.markdown("---")
-    
-    # 合計チェック
-    if total_weight == 100:
-        st.success(f"✅ 合計: {total_weight}%")
-    else:
-        st.error(f"❌ 合計: {total_weight}%（100%にしてください）")
-    
-    # カスタム基準の追加
-    with st.expander("➕ 評価基準を追加"):
-        new_name = st.text_input("基準名", placeholder="例: 創造性")
-        new_desc = st.text_input("説明", placeholder="例: 独自の表現やアイデア")
-        new_weight = st.number_input("配分%", 0, 100, 10, key="new_speak_weight")
-        
-        if st.button("追加", key="add_speak_criterion"):
-            if new_name:
-                new_key = new_name.lower().replace(" ", "_")
-                new_criteria[new_key] = {
-                    "name": new_name,
-                    "weight": new_weight,
-                    "desc": new_desc
-                }
-                st.success(f"「{new_name}」を追加しました")
-    
-    # 保存
-    if st.button("Speaking評価基準を保存", type="primary"):
-        rubrics[task_type]["criteria"] = new_criteria
-        st.session_state.course_settings[class_key]["speaking_rubrics"] = rubrics
-        st.success("✅ 保存しました")
-    
-    st.markdown("---")
-    
-    # プレビュー
-    st.markdown("#### 👀 評価レポートプレビュー")
-    st.caption("学生に表示される評価の例")
-    
-    preview_scores = {key: 75 + (hash(key) % 20) for key in new_criteria.keys()}
-    
-    for key, criterion in new_criteria.items():
-        score = preview_scores[key]
-        col1, col2, col3 = st.columns([3, 1, 1])
-        with col1:
-            st.markdown(f"{criterion['name']}")
-        with col2:
-            st.progress(score / 100)
-        with col3:
-            weighted = score * criterion['weight'] / 100
-            st.markdown(f"{score}点 (×{criterion['weight']}% = {weighted:.1f})")
-    
-    total_score = sum(preview_scores[k] * new_criteria[k]['weight'] / 100 for k in new_criteria.keys())
-    st.markdown(f"**総合スコア: {total_score:.1f}点**")
+    return {
+        "purpose": row.get("purpose") or DEFAULT_PURPOSE,
+        "modules": row.get("modules") or DEFAULT_MODULES,
+        "speaking_rubrics": row.get("speaking_rubrics") or get_default_speaking_rubrics(),
+        "writing_rubrics": row.get("writing_rubrics") or get_default_writing_rubrics(),
+        "practice_menu": row.get("practice_menu") or {},
+        "grade_settings": row.get("grade_settings") or DEFAULT_GRADE_SETTINGS,
+    }
 
 
-def show_writing_rubrics(class_key, settings):
-    """Writing評価基準のカスタマイズ"""
-    
-    st.markdown("### ✍️ Writing評価基準")
-    st.caption("課題タイプごとに評価の重み付けをカスタマイズできます")
-    
-    rubrics = settings.get("writing_rubrics", get_default_writing_rubrics())
-    
-    # 課題タイプ選択
-    task_type = st.selectbox(
-        "課題タイプを選択",
-        list(rubrics.keys()),
-        format_func=lambda x: rubrics[x]["name"],
-        key="writing_task_type"
-    )
-    
+# ============================================================
+# メインページ
+# ============================================================
+
+@require_auth
+def show():
+    user = get_current_user()
+
+    st.markdown("## ⚙️ 科目設定")
+
+    if st.button("← 教員ホームに戻る"):
+        st.session_state['current_view'] = 'teacher_home'
+        st.rerun()
+
     st.markdown("---")
-    
-    current_rubric = rubrics[task_type]
-    st.markdown(f"#### 📋 {current_rubric['name']} の評価基準")
-    
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if st.button("🔄 デフォルトに戻す", key="reset_writing"):
-            default = get_default_writing_rubrics()
-            rubrics[task_type] = default[task_type]
-            st.session_state.course_settings[class_key]["writing_rubrics"] = rubrics
-            st.rerun()
-    
-    st.markdown("---")
-    
-    # 評価基準の編集
-    new_criteria = {}
-    total_weight = 0
-    
-    for key, criterion in current_rubric["criteria"].items():
-        col1, col2, col3 = st.columns([3, 1, 1])
-        
-        with col1:
-            st.markdown(f"**{criterion['name']}**")
-            st.caption(criterion['desc'])
-        
-        with col2:
-            weight = st.number_input(
-                "配分%",
-                min_value=0,
-                max_value=100,
-                value=criterion['weight'],
-                key=f"write_{task_type}_{key}",
-                label_visibility="collapsed"
-            )
-        
-        with col3:
-            st.markdown(f"**{weight}%**")
-        
-        new_criteria[key] = {
-            "name": criterion['name'],
-            "weight": weight,
-            "desc": criterion['desc']
-        }
-        total_weight += weight
-    
-    st.markdown("---")
-    
-    if total_weight == 100:
-        st.success(f"✅ 合計: {total_weight}%")
-    else:
-        st.error(f"❌ 合計: {total_weight}%（100%にしてください）")
-    
-    # カスタム基準の追加
-    with st.expander("➕ 評価基準を追加"):
-        new_name = st.text_input("基準名", placeholder="例: 引用の適切さ", key="new_write_name")
-        new_desc = st.text_input("説明", placeholder="例: 出典の明記、引用形式", key="new_write_desc")
-        new_weight = st.number_input("配分%", 0, 100, 10, key="new_write_weight")
-        
-        if st.button("追加", key="add_write_criterion"):
-            if new_name:
-                new_key = new_name.lower().replace(" ", "_")
-                new_criteria[new_key] = {
-                    "name": new_name,
-                    "weight": new_weight,
-                    "desc": new_desc
-                }
-                st.success(f"「{new_name}」を追加しました")
-    
-    if st.button("Writing評価基準を保存", type="primary", key="save_writing"):
-        rubrics[task_type]["criteria"] = new_criteria
-        st.session_state.course_settings[class_key]["writing_rubrics"] = rubrics
-        st.success("✅ 保存しました")
+
+    # コース選択
+    course_id = st.session_state.get('selected_course_id')
+    course_name = st.session_state.get('selected_course_name', '')
+
+    if not course_id:
+        st.warning("コースが選択されていません。教員ホームからコースを選択してください。")
+        return
+
+    st.info(f"📚 **{course_name}** の設定")
+
+    # DBから設定をロード
+    settings = _load_settings(course_id)
+
+    # タブ
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📌 科目の目的",
+        "📦 モジュール設定",
+        "🗣️ Speaking評価基準",
+        "✍️ Writing評価基準",
+        "📋 練習メニュー",
+        "📊 成績配分",
+    ])
+
+    with tab1:
+        _tab_purpose(course_id, settings)
+    with tab2:
+        _tab_modules(course_id, settings)
+    with tab3:
+        _tab_rubrics(course_id, settings, skill="speaking")
+    with tab4:
+        _tab_rubrics(course_id, settings, skill="writing")
+    with tab5:
+        _tab_practice_menu(course_id, settings)
+    with tab6:
+        _tab_grade(course_id, settings)
 
 
-def show_purpose_settings(class_key, settings):
-    """科目の目的設定"""
-    
+# ============================================================
+# Tab 1: 科目の目的
+# ============================================================
+
+def _tab_purpose(course_id: str, settings: dict):
     st.markdown("### 📌 科目の目的")
-    
+
     purposes = [
         "アウトプット力（話す・書く）の向上",
         "インプット力（聞く・読む）の向上",
         "4技能バランス型",
         "試験対策（TOEFL/TOEIC）",
         "ビジネス英語",
-        "アカデミック英語（論文・発表）"
+        "アカデミック英語（論文・発表）",
     ]
-    
-    current_purpose = settings.get("purpose", purposes[0])
-    
-    selected_purpose = st.selectbox(
-        "目的を選択",
-        purposes,
-        index=purposes.index(current_purpose) if current_purpose in purposes else 0
-    )
-    
-    if st.button("目的を保存", type="primary"):
-        st.session_state.course_settings[class_key]["purpose"] = selected_purpose
-        st.success("✅ 保存しました")
+
+    current = settings["purpose"]
+    idx = purposes.index(current) if current in purposes else 0
+    selected = st.selectbox("目的を選択", purposes, index=idx)
+
+    if st.button("目的を保存", type="primary", key="save_purpose"):
+        _save(course_id, "purpose", selected)
 
 
-def show_module_settings(class_key, settings):
-    """モジュール設定"""
-    
+# ============================================================
+# Tab 2: モジュール設定
+# ============================================================
+
+def _tab_modules(course_id: str, settings: dict):
     st.markdown("### 📦 使用モジュール")
-    
-    modules = settings.get("modules", {})
-    
-    module_list = [
-        {"key": "speaking", "name": "🗣️ スピーキング"},
-        {"key": "writing", "name": "✍️ ライティング"},
-        {"key": "pronunciation", "name": "🎤 発音矯正"},
-        {"key": "listening", "name": "🎧 リスニング"},
-        {"key": "reading", "name": "📖 リーディング"},
-        {"key": "vocabulary", "name": "📚 語彙"},
+
+    modules = settings["modules"]
+    module_defs = [
+        ("speaking", "🗣️ スピーキング"),
+        ("writing", "✍️ ライティング"),
+        ("pronunciation", "🎤 発音矯正"),
+        ("listening", "🎧 リスニング"),
+        ("reading", "📖 リーディング"),
+        ("vocabulary", "📚 語彙"),
     ]
-    
+
     total_weight = 0
     new_modules = {}
-    
-    for mod in module_list:
+
+    for key, label in module_defs:
+        mod = modules.get(key, {"enabled": False, "weight": 0})
         col1, col2, col3 = st.columns([3, 1, 1])
-        mod_settings = modules.get(mod["key"], {"enabled": False, "weight": 0})
-        
+
         with col1:
-            enabled = st.checkbox(mod["name"], value=mod_settings.get("enabled", False), key=f"mod_{mod['key']}")
+            enabled = st.checkbox(label, value=mod.get("enabled", False), key=f"mod_{key}")
         with col2:
-            weight = st.number_input("配分%", 0, 100, mod_settings.get("weight", 0), key=f"modw_{mod['key']}", label_visibility="collapsed") if enabled else 0
+            weight = (
+                st.number_input("配分%", 0, 100, mod.get("weight", 0),
+                                key=f"modw_{key}", label_visibility="collapsed")
+                if enabled else 0
+            )
         with col3:
             if enabled and weight > 0:
                 st.markdown(f"**{weight}%**")
-        
-        new_modules[mod["key"]] = {"enabled": enabled, "weight": weight}
+
+        new_modules[key] = {"enabled": enabled, "weight": weight}
         if enabled:
             total_weight += weight
-    
+
     st.markdown("---")
     if total_weight > 0:
         if total_weight == 100:
             st.success(f"✅ 合計: {total_weight}%")
         else:
             st.warning(f"⚠️ 合計: {total_weight}%")
-    
-    if st.button("モジュール設定を保存", type="primary"):
-        st.session_state.course_settings[class_key]["modules"] = new_modules
-        st.success("✅ 保存しました")
+
+    if st.button("モジュール設定を保存", type="primary", key="save_modules"):
+        _save(course_id, "modules", new_modules)
 
 
-def show_practice_menu_settings(class_key, settings):
-    """練習メニュー設定"""
+# ============================================================
+# Tab 3 & 4: 評価基準（Speaking / Writing 共通ロジック）
+# ============================================================
+
+def _tab_rubrics(course_id: str, settings: dict, skill: str):
+    """Speaking / Writing 評価基準の共通UI
     
+    skill: "speaking" or "writing"
+    """
+    is_speaking = (skill == "speaking")
+    icon = "🗣️" if is_speaking else "✍️"
+    label = "Speaking" if is_speaking else "Writing"
+    field = "speaking_rubrics" if is_speaking else "writing_rubrics"
+    defaults_fn = get_default_speaking_rubrics if is_speaking else get_default_writing_rubrics
+
+    st.markdown(f"### {icon} {label}評価基準")
+    st.caption("課題タイプごとに評価の重み付けをカスタマイズできます")
+
+    rubrics = settings[field]
+
+    # 課題タイプ選択
+    task_type = st.selectbox(
+        "課題タイプを選択",
+        list(rubrics.keys()),
+        format_func=lambda x: rubrics[x]["name"],
+        key=f"{skill}_task_type",
+    )
+
+    st.markdown("---")
+    current_rubric = rubrics[task_type]
+    st.markdown(f"#### 📋 {current_rubric['name']} の評価基準")
+
+    # デフォルトに戻す
+    col_l, col_r = st.columns([3, 1])
+    with col_r:
+        if st.button("🔄 デフォルトに戻す", key=f"reset_{skill}"):
+            defaults = defaults_fn()
+            rubrics[task_type] = defaults[task_type]
+            _save(course_id, field, rubrics)
+            st.rerun()
+
+    st.markdown("---")
+
+    # 評価基準の編集
+    new_criteria = {}
+    total_weight = 0
+
+    for key, criterion in current_rubric["criteria"].items():
+        c1, c2, c3 = st.columns([3, 1, 1])
+        with c1:
+            st.markdown(f"**{criterion['name']}**")
+            st.caption(criterion['desc'])
+        with c2:
+            weight = st.number_input(
+                "配分%", 0, 100, criterion['weight'],
+                key=f"{skill}_{task_type}_{key}",
+                label_visibility="collapsed",
+            )
+        with c3:
+            st.markdown(f"**{weight}%**")
+
+        new_criteria[key] = {
+            "name": criterion['name'],
+            "weight": weight,
+            "desc": criterion['desc'],
+        }
+        total_weight += weight
+
+    # 基準の削除UI
+    if len(new_criteria) > 1:
+        with st.expander("🗑️ 評価基準を削除"):
+            del_key = st.selectbox(
+                "削除する基準を選択",
+                list(new_criteria.keys()),
+                format_func=lambda k: new_criteria[k]["name"],
+                key=f"del_{skill}_{task_type}",
+            )
+            if st.button("この基準を削除", key=f"delbtn_{skill}_{task_type}"):
+                del new_criteria[del_key]
+                total_weight = sum(c["weight"] for c in new_criteria.values())
+                st.success(f"「{rubrics[task_type]['criteria'][del_key]['name']}」を削除しました（保存してください）")
+
+    st.markdown("---")
+
+    # 合計チェック
+    if total_weight == 100:
+        st.success(f"✅ 合計: {total_weight}%")
+    else:
+        st.error(f"❌ 合計: {total_weight}%（100%にしてください）")
+
+    # カスタム基準の追加
+    with st.expander("➕ 評価基準を追加"):
+        new_name = st.text_input("基準名", placeholder="例: 創造性", key=f"new_{skill}_name")
+        new_desc = st.text_input("説明", placeholder="例: 独自の表現やアイデア", key=f"new_{skill}_desc")
+        new_weight = st.number_input("配分%", 0, 100, 10, key=f"new_{skill}_weight")
+
+        if st.button("追加", key=f"add_{skill}_criterion"):
+            if new_name:
+                new_key = new_name.lower().replace(" ", "_").replace("　", "_")
+                if new_key in new_criteria:
+                    st.warning("同名の基準が既に存在します")
+                else:
+                    new_criteria[new_key] = {
+                        "name": new_name,
+                        "weight": new_weight,
+                        "desc": new_desc,
+                    }
+                    st.success(f"「{new_name}」を追加しました（保存ボタンを押してください）")
+            else:
+                st.warning("基準名を入力してください")
+
+    # 保存
+    if st.button(f"{label}評価基準を保存", type="primary", key=f"save_{skill}"):
+        rubrics[task_type]["criteria"] = new_criteria
+        _save(course_id, field, rubrics)
+
+    st.markdown("---")
+
+    # プレビュー
+    _rubric_preview(new_criteria)
+
+
+def _rubric_preview(criteria: dict):
+    """評価レポートのプレビュー表示"""
+    st.markdown("#### 👀 評価レポートプレビュー")
+    st.caption("学生に表示される評価の例")
+
+    preview_scores = {k: 75 + (hash(k) % 20) for k in criteria}
+
+    for key, criterion in criteria.items():
+        score = preview_scores[key]
+        c1, c2, c3 = st.columns([3, 1, 1])
+        with c1:
+            st.markdown(criterion['name'])
+        with c2:
+            st.progress(score / 100)
+        with c3:
+            weighted = score * criterion['weight'] / 100
+            st.markdown(f"{score}点 (×{criterion['weight']}% = {weighted:.1f})")
+
+    total = sum(
+        preview_scores[k] * criteria[k]['weight'] / 100
+        for k in criteria
+    )
+    st.markdown(f"**総合スコア: {total:.1f}点**")
+
+
+# ============================================================
+# Tab 5: 練習メニュー
+# ============================================================
+
+def _tab_practice_menu(course_id: str, settings: dict):
     st.markdown("### 📋 練習メニュー")
-    
-    practice_menu = settings.get("practice_menu", {})
-    
+
+    menu = settings["practice_menu"]
     options = [
-        {"key": "daily_reading", "name": "毎日10分の音読練習"},
-        {"key": "weekly_speech", "name": "週1回のスピーチ提出"},
-        {"key": "weekly_writing", "name": "週2回のライティング練習"},
-        {"key": "listening_practice", "name": "毎日15分のリスニング"},
-        {"key": "vocabulary_daily", "name": "毎日の単語学習（10語）"},
+        ("daily_reading", "毎日10分の音読練習"),
+        ("weekly_speech", "週1回のスピーチ提出"),
+        ("weekly_writing", "週2回のライティング練習"),
+        ("listening_practice", "毎日15分のリスニング"),
+        ("vocabulary_daily", "毎日の単語学習（10語）"),
     ]
-    
+
     new_menu = {}
-    for opt in options:
-        new_menu[opt["key"]] = st.checkbox(opt["name"], value=practice_menu.get(opt["key"], False), key=f"prac_{opt['key']}")
-    
-    if st.button("練習メニューを保存", type="primary"):
-        st.session_state.course_settings[class_key]["practice_menu"] = new_menu
-        st.success("✅ 保存しました")
+    for key, label in options:
+        new_menu[key] = st.checkbox(label, value=menu.get(key, False), key=f"prac_{key}")
+
+    if st.button("練習メニューを保存", type="primary", key="save_practice"):
+        _save(course_id, "practice_menu", new_menu)
 
 
-def show_grade_settings(class_key, settings):
-    """成績配分設定"""
-    
+# ============================================================
+# Tab 6: 成績配分
+# ============================================================
+
+def _tab_grade(course_id: str, settings: dict):
     st.markdown("### 📊 成績配分")
-    
-    grade_settings = settings.get("grade_settings", {})
-    
+
+    grade = settings["grade_settings"]
+
     col1, col2 = st.columns(2)
     with col1:
-        assignment_weight = st.slider("課題スコア平均", 0, 100, grade_settings.get("assignment_weight", 50))
-        practice_weight = st.slider("練習への取り組み", 0, 100, grade_settings.get("practice_weight", 20))
+        aw = st.slider("課題スコア平均", 0, 100, grade.get("assignment_weight", 50))
+        pw = st.slider("練習への取り組み", 0, 100, grade.get("practice_weight", 20))
     with col2:
-        final_test_weight = st.slider("最終テスト", 0, 100, grade_settings.get("final_test_weight", 20))
-        participation_weight = st.slider("授業参加・その他", 0, 100, grade_settings.get("participation_weight", 10))
-    
-    total = assignment_weight + practice_weight + final_test_weight + participation_weight
-    
+        fw = st.slider("最終テスト", 0, 100, grade.get("final_test_weight", 20))
+        ppw = st.slider("授業参加・その他", 0, 100, grade.get("participation_weight", 10))
+
+    total = aw + pw + fw + ppw
     if total == 100:
         st.success(f"✅ 合計: {total}%")
     else:
-        st.error(f"❌ 合計: {total}%")
-    
-    if st.button("成績配分を保存", type="primary"):
-        st.session_state.course_settings[class_key]["grade_settings"] = {
-            "assignment_weight": assignment_weight,
-            "practice_weight": practice_weight,
-            "final_test_weight": final_test_weight,
-            "participation_weight": participation_weight,
+        st.error(f"❌ 合計: {total}%（100%にしてください）")
+
+    if st.button("成績配分を保存", type="primary", key="save_grade"):
+        new_grade = {
+            "assignment_weight": aw,
+            "practice_weight": pw,
+            "final_test_weight": fw,
+            "participation_weight": ppw,
         }
-        st.success("✅ 保存しました")
+        _save(course_id, "grade_settings", new_grade)
+
+
+# ============================================================
+# 共通保存ヘルパー
+# ============================================================
+
+def _save(course_id: str, field: str, value):
+    """フィールドをDBに保存し、結果をUIに表示"""
+    try:
+        update_course_settings_field(course_id, field, value)
+        st.success("✅ DBに保存しました")
+    except Exception as e:
+        st.error(f"保存に失敗しました: {e}")
