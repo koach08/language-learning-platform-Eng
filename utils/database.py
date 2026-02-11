@@ -22,6 +22,7 @@ def clear_course_cache(course_id: str = None):
     _get_speaking_materials_cached.clear()
     _get_speaking_rubric_cached.clear()
     _get_course_settings_cached.clear()
+    _get_learning_resources_cached.clear()
 
 def clear_student_cache(student_id: str = None):
     """学生関連キャッシュをクリア"""
@@ -1082,3 +1083,98 @@ def save_word_list(student_id: str = None, teacher_id: str = None,
     # 将来的には word_lists テーブルに分離可能
     result = supabase.table('ai_generated_texts').insert(data).execute()
     return result.data[0] if result.data else None
+
+
+# ============================================================
+# Learning Resources Operations (プロンプト集・教材コンテンツ管理)
+# ============================================================
+
+def get_learning_resources(course_id: str = None, resource_type: str = None,
+                           category: str = None, active_only: bool = True) -> List[Dict]:
+    """学習リソース一覧を取得"""
+    return _get_learning_resources_cached(course_id, resource_type, category, active_only)
+
+@st.cache_data(ttl=120)
+def _get_learning_resources_cached(course_id: str = None, resource_type: str = None,
+                                    category: str = None, active_only: bool = True) -> List[Dict]:
+    supabase = get_supabase_client()
+    query = supabase.table('learning_resources').select('*')
+    if course_id:
+        query = query.eq('course_id', course_id)
+    if resource_type:
+        query = query.eq('resource_type', resource_type)
+    if category:
+        query = query.eq('category', category)
+    if active_only:
+        query = query.eq('is_active', True)
+    result = query.order('sort_order').order('created_at', desc=True).execute()
+    return result.data
+
+
+def create_learning_resource(teacher_id: str, course_id: str = None,
+                             resource_type: str = 'prompt', category: str = 'general',
+                             title: str = '', description: str = '',
+                             content: str = '', tip: str = '',
+                             sort_order: int = 0, metadata: Dict = None) -> Dict:
+    """学習リソースを作成"""
+    supabase = get_supabase_client()
+    data = {
+        'teacher_id': teacher_id,
+        'course_id': course_id,
+        'resource_type': resource_type,
+        'category': category,
+        'title': title,
+        'description': description,
+        'content': content,
+        'tip': tip,
+        'sort_order': sort_order,
+        'metadata': metadata or {},
+    }
+    result = supabase.table('learning_resources').insert(data).execute()
+    _get_learning_resources_cached.clear()
+    return result.data[0] if result.data else None
+
+
+def update_learning_resource(resource_id: str, updates: Dict) -> Dict:
+    """学習リソースを更新"""
+    supabase = get_supabase_client()
+    updates['updated_at'] = datetime.utcnow().isoformat()
+    result = supabase.table('learning_resources').update(updates).eq('id', resource_id).execute()
+    _get_learning_resources_cached.clear()
+    return result.data[0] if result.data else None
+
+
+def delete_learning_resource(resource_id: str, soft: bool = True) -> bool:
+    """学習リソースを削除（デフォルトは論理削除）"""
+    supabase = get_supabase_client()
+    if soft:
+        result = supabase.table('learning_resources').update(
+            {'is_active': False, 'updated_at': datetime.utcnow().isoformat()}
+        ).eq('id', resource_id).execute()
+    else:
+        result = supabase.table('learning_resources').delete().eq('id', resource_id).execute()
+    _get_learning_resources_cached.clear()
+    return len(result.data) > 0
+
+
+def bulk_import_learning_resources(teacher_id: str, course_id: str,
+                                    resources: List[Dict]) -> int:
+    """プロンプト集をハードコードから一括インポート"""
+    supabase = get_supabase_client()
+    rows = []
+    for r in resources:
+        rows.append({
+            'teacher_id': teacher_id,
+            'course_id': course_id,
+            'resource_type': r.get('resource_type', 'prompt'),
+            'category': r.get('category', 'general'),
+            'title': r.get('title', ''),
+            'description': r.get('description', ''),
+            'content': r.get('content', ''),
+            'tip': r.get('tip', ''),
+            'sort_order': r.get('sort_order', 0),
+            'metadata': r.get('metadata', {}),
+        })
+    result = supabase.table('learning_resources').insert(rows).execute()
+    _get_learning_resources_cached.clear()
+    return len(result.data)

@@ -598,13 +598,84 @@ def show():
 
 
 def show_ai_prompts():
-    """AIプロンプト集の表示"""
+    """AIプロンプト集の表示（DB優先、fallback でハードコード）"""
     st.markdown("### 🤖 AIプロンプト集 / AI Prompt Collection")
     st.markdown("""
     以下のプロンプトをコピーして、ChatGPT・Claude・Geminiなどの生成AIに貼り付けて使ってください。
     `[ ]` の部分を自分の状況に合わせて変更するとより効果的です。
     """)
 
+    # DB からプロンプトを取得（コースが選択されている場合）
+    db_prompts = []
+    course_id = st.session_state.get('selected_course_id')
+    if course_id:
+        try:
+            from utils.database import get_learning_resources
+            db_prompts = get_learning_resources(
+                course_id=course_id, resource_type='prompt'
+            )
+        except Exception:
+            db_prompts = []
+
+    if db_prompts:
+        # DB版プロンプト表示
+        # カテゴリ定義
+        cat_labels = {
+            "writing": "✏️ 英作文添削・文法チェック / Writing & Grammar",
+            "conversation": "💬 会話練習・ロールプレイ / Conversation & Role-play",
+            "vocabulary": "📚 語彙学習・単語説明 / Vocabulary Building",
+            "test_prep": "📋 試験対策 / Test Preparation",
+            "general_language": "🌍 語学学習全般 / General Language Learning",
+            "custom": "🔧 カスタム",
+        }
+
+        # カテゴリ別にグループ化
+        by_cat = {}
+        for r in db_prompts:
+            cat = r.get("category", "custom")
+            by_cat.setdefault(cat, []).append(r)
+
+        # カテゴリフィルター
+        categories = list(by_cat.keys())
+        selected_cat = st.selectbox(
+            "カテゴリを選択 / Select Category",
+            options=["all"] + categories,
+            format_func=lambda x: "📋 すべて表示" if x == "all"
+                else cat_labels.get(x, f"🔧 {x}"),
+        )
+
+        cats_to_show = categories if selected_cat == "all" else [selected_cat]
+
+        for cat_key in cats_to_show:
+            items = by_cat.get(cat_key, [])
+            cat_label = cat_labels.get(cat_key, f"🔧 {cat_key}")
+            st.markdown(f"#### {cat_label}")
+
+            for item in items:
+                with st.expander(f"**{item['title']}** — {item.get('description', '')}"):
+                    st.code(item.get("content", ""), language=None)
+                    if item.get("tip"):
+                        st.caption(item["tip"])
+                    st.markdown(f"""
+                    <div style="
+                        background: #f0f7ff;
+                        border-radius: 8px;
+                        padding: 10px 14px;
+                        font-size: 13px;
+                        margin-top: 8px;
+                        border-left: 3px solid #4A90D9;
+                    ">
+                        📋 <strong>使い方:</strong> 上のテキストをコピー → ChatGPT/Claude/Geminiに貼り付け → <code>[ ]</code> の部分を変更して送信
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            st.markdown("---")
+    else:
+        # Fallback: ハードコード版（DB未登録の場合）
+        _show_ai_prompts_hardcoded()
+
+def _show_ai_prompts_hardcoded():
+    """ハードコード版AIプロンプト集の表示（DB未登録時のフォールバック）"""
     # カテゴリフィルター
     categories = list(AI_PROMPTS.keys())
     category_labels = {k: f"{v['icon']} {v['title']}" for k, v in AI_PROMPTS.items()}

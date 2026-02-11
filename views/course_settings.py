@@ -13,12 +13,28 @@ Course Settings - 教員カスタマイズ機能
 """
 
 import streamlit as st
+import re
 from utils.auth import get_current_user, require_auth
 from utils.database import (
     get_course_settings,
     upsert_course_settings,
     update_course_settings_field,
+    get_learning_resources,
+    create_learning_resource,
+    update_learning_resource,
+    delete_learning_resource,
+    bulk_import_learning_resources,
 )
+
+
+def _is_uuid(value: str) -> bool:
+    """course_idがUUID形式かどうか判定"""
+    if not value:
+        return False
+    return bool(re.match(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        value, re.IGNORECASE
+    ))
 
 
 # ============================================================
@@ -133,12 +149,30 @@ def get_default_writing_rubrics() -> dict:
 
 
 # ============================================================
+# ヘルパー: UUID判定
+# ============================================================
+
+import re
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE
+)
+
+def _is_uuid(value: str) -> bool:
+    """文字列がUUID形式かどうか判定"""
+    return bool(_UUID_RE.match(value or ''))
+
+
+# ============================================================
 # ヘルパー: DBからロードしてデフォルトとマージ
 # ============================================================
 
 def _load_settings(course_id: str) -> dict:
     """DBから設定を取得し、未設定項目にはデフォルトを適用"""
-    row = get_course_settings(course_id)
+    row = None
+    if _is_uuid(course_id):
+        row = get_course_settings(course_id)
+
     if row is None:
         return {
             "purpose": DEFAULT_PURPOSE,
@@ -174,12 +208,47 @@ def show():
 
     st.markdown("---")
 
-    # コース選択
+    # コース選択（DB版 or ハードコード版のどちらにも対応）
     course_id = st.session_state.get('selected_course_id')
     course_name = st.session_state.get('selected_course_name', '')
 
+    # DB版のcourse_idがない場合、teacher_homeのselected_classをフォールバック
     if not course_id:
+        selected_class = st.session_state.get('selected_class')
+        if selected_class:
+            # ハードコードクラスキーをcourse_idとして使用
+            course_id = selected_class
+            classes = st.session_state.get('teacher_classes', {})
+            course_name = classes.get(selected_class, {}).get('name', selected_class)
+            # 以降の処理で使えるようにセット
+            st.session_state['selected_course_id'] = course_id
+            st.session_state['selected_course_name'] = course_name
+
+    if not course_id:
+        # デバッグ: 何がsession_stateにあるか表示
+        with st.expander("🔍 デバッグ情報（原因特定用）"):
+            st.write("selected_course_id:", st.session_state.get('selected_course_id'))
+            st.write("selected_course_name:", st.session_state.get('selected_course_name'))
+            st.write("selected_class:", st.session_state.get('selected_class'))
+            st.write("teacher_classes keys:", list(st.session_state.get('teacher_classes', {}).keys()))
+
         st.warning("コースが選択されていません。教員ホームからコースを選択してください。")
+
+        # 簡易コース選択UI（フォールバック）
+        classes = st.session_state.get('teacher_classes', {})
+        if classes:
+            st.markdown("#### 👇 ここからコースを選択できます")
+            selected = st.selectbox(
+                "コースを選択",
+                list(classes.keys()),
+                format_func=lambda x: classes[x].get('name', x),
+                key="fallback_course_select",
+            )
+            if st.button("このコースで設定を開く", type="primary"):
+                st.session_state['selected_class'] = selected
+                st.session_state['selected_course_id'] = selected
+                st.session_state['selected_course_name'] = classes[selected].get('name', selected)
+                st.rerun()
         return
 
     st.info(f"📚 **{course_name}** の設定")
@@ -188,13 +257,14 @@ def show():
     settings = _load_settings(course_id)
 
     # タブ
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📌 科目の目的",
         "📦 モジュール設定",
         "🗣️ Speaking評価基準",
         "✍️ Writing評価基準",
         "📋 練習メニュー",
         "📊 成績配分",
+        "📝 教材・プロンプト集",
     ])
 
     with tab1:
@@ -209,6 +279,8 @@ def show():
         _tab_practice_menu(course_id, settings)
     with tab6:
         _tab_grade(course_id, settings)
+    with tab7:
+        _tab_learning_resources(course_id, user)
 
 
 # ============================================================
@@ -243,21 +315,33 @@ def _tab_modules(course_id: str, settings: dict):
     st.markdown("### 📦 使用モジュール")
 
     modules = settings["modules"]
-    module_defs = [
-        ("speaking", "🗣️ スピーキング"),
-        ("writing", "✍️ ライティング"),
-        ("pronunciation", "🎤 発音矯正"),
-        ("listening", "🎧 リスニング"),
-        ("reading", "📖 リーディング"),
-        ("vocabulary", "📚 語彙"),
-    ]
+
+    # 組み込みモジュール定義
+    builtin_module_defs = {
+        "speaking": "🗣️ スピーキング",
+        "writing": "✍️ ライティング",
+        "pronunciation": "🎤 発音矯正",
+        "listening": "🎧 リスニング",
+        "reading": "📖 リーディング",
+        "vocabulary": "📚 語彙",
+    }
+
+    # 全モジュール（組み込み + カスタム）をまとめて表示
+    all_keys = list(builtin_module_defs.keys())
+    # カスタムモジュール（組み込み以外）もリストに追加
+    for key in modules:
+        if key not in all_keys:
+            all_keys.append(key)
 
     total_weight = 0
     new_modules = {}
 
-    for key, label in module_defs:
+    for key in all_keys:
         mod = modules.get(key, {"enabled": False, "weight": 0})
-        col1, col2, col3 = st.columns([3, 1, 1])
+        label = builtin_module_defs.get(key, f"🔧 {mod.get('label', key)}")
+        is_custom = key not in builtin_module_defs
+
+        col1, col2, col3, col4 = st.columns([3, 1, 0.5, 0.5])
 
         with col1:
             enabled = st.checkbox(label, value=mod.get("enabled", False), key=f"mod_{key}")
@@ -270,8 +354,22 @@ def _tab_modules(course_id: str, settings: dict):
         with col3:
             if enabled and weight > 0:
                 st.markdown(f"**{weight}%**")
+        with col4:
+            if is_custom:
+                if st.button("🗑️", key=f"delmod_{key}", help="カスタムモジュールを削除"):
+                    # 削除フラグ
+                    st.session_state[f"_del_mod_{key}"] = True
+                    st.rerun()
 
-        new_modules[key] = {"enabled": enabled, "weight": weight}
+        # 削除フラグ処理
+        if st.session_state.pop(f"_del_mod_{key}", False):
+            continue  # このモジュールをスキップ
+
+        entry = {"enabled": enabled, "weight": weight}
+        if is_custom:
+            entry["label"] = mod.get("label", key)
+            entry["custom"] = True
+        new_modules[key] = entry
         if enabled:
             total_weight += weight
 
@@ -281,6 +379,31 @@ def _tab_modules(course_id: str, settings: dict):
             st.success(f"✅ 合計: {total_weight}%")
         else:
             st.warning(f"⚠️ 合計: {total_weight}%")
+
+    # カスタムモジュール追加
+    with st.expander("➕ 新規モジュールを追加"):
+        new_mod_label = st.text_input(
+            "モジュール名", placeholder="例: プレゼンテーション",
+            key="new_mod_label"
+        )
+        new_mod_weight = st.number_input(
+            "初期配分%", 0, 100, 0, key="new_mod_weight"
+        )
+        if st.button("モジュールを追加", key="add_custom_mod"):
+            if new_mod_label:
+                new_key = new_mod_label.lower().replace(" ", "_").replace("　", "_")
+                if new_key in new_modules:
+                    st.warning("同名のモジュールが既に存在します")
+                else:
+                    new_modules[new_key] = {
+                        "enabled": True,
+                        "weight": new_mod_weight,
+                        "label": new_mod_label,
+                        "custom": True,
+                    }
+                    st.success(f"「{new_mod_label}」を追加しました（保存ボタンを押してください）")
+            else:
+                st.warning("モジュール名を入力してください")
 
     if st.button("モジュール設定を保存", type="primary", key="save_modules"):
         _save(course_id, "modules", new_modules)
@@ -491,11 +614,228 @@ def _tab_grade(course_id: str, settings: dict):
 
 
 # ============================================================
+# Tab 7: 教材・プロンプト集管理
+# ============================================================
+
+# プロンプト集のカテゴリ定義
+RESOURCE_CATEGORIES = {
+    "writing": "✏️ 英作文添削・文法チェック",
+    "conversation": "💬 会話練習・ロールプレイ",
+    "vocabulary": "📚 語彙学習・単語説明",
+    "test_prep": "📋 試験対策",
+    "general_language": "🌍 語学学習全般",
+    "custom": "🔧 カスタム",
+}
+
+
+def _tab_learning_resources(course_id: str, user: dict):
+    st.markdown("### 📝 教材・プロンプト集管理")
+    st.caption("学生に表示するAIプロンプト集を管理できます")
+
+    teacher_id = user["id"]
+
+    # DBからリソースを取得（UUID形式のcourse_idの場合のみ）
+    resources = []
+    if _is_uuid(course_id):
+        resources = get_learning_resources(course_id=course_id, resource_type='prompt')
+    else:
+        st.info("💡 このクラスはローカル設定のため、教材管理はデモモードです。DBコースを作成すると完全なDB管理が利用できます。")
+
+    # サブタブ
+    sub1, sub2, sub3 = st.tabs(["📋 一覧・編集", "➕ 新規追加", "📥 一括インポート"])
+
+    with sub1:
+        _resources_list(course_id, resources)
+
+    with sub2:
+        _resources_add(course_id, teacher_id)
+
+    with sub3:
+        _resources_import(course_id, teacher_id, resources)
+
+
+def _resources_list(course_id: str, resources: list):
+    """リソース一覧・編集・削除"""
+    if not resources:
+        st.info("まだプロンプトが登録されていません。「新規追加」タブから追加するか、「一括インポート」でデフォルトをインポートしてください。")
+        return
+
+    st.markdown(f"**{len(resources)} 件のプロンプトが登録されています**")
+
+    # カテゴリ別にグループ化
+    by_cat = {}
+    for r in resources:
+        cat = r.get("category", "custom")
+        by_cat.setdefault(cat, []).append(r)
+
+    for cat, items in by_cat.items():
+        cat_label = RESOURCE_CATEGORIES.get(cat, f"🔧 {cat}")
+        st.markdown(f"#### {cat_label}")
+
+        for item in items:
+            with st.expander(f"**{item['title']}** — {item.get('description', '')}"):
+                # 編集モード
+                edit_key = f"edit_{item['id']}"
+
+                new_title = st.text_input(
+                    "タイトル", value=item["title"], key=f"t_{item['id']}"
+                )
+                new_desc = st.text_input(
+                    "説明", value=item.get("description", ""), key=f"d_{item['id']}"
+                )
+                new_content = st.text_area(
+                    "プロンプト本文", value=item.get("content", ""),
+                    height=200, key=f"c_{item['id']}"
+                )
+                new_tip = st.text_input(
+                    "💡 ヒント", value=item.get("tip", ""), key=f"tip_{item['id']}"
+                )
+                new_cat = st.selectbox(
+                    "カテゴリ",
+                    list(RESOURCE_CATEGORIES.keys()),
+                    index=list(RESOURCE_CATEGORIES.keys()).index(cat) if cat in RESOURCE_CATEGORIES else 0,
+                    format_func=lambda x: RESOURCE_CATEGORIES.get(x, x),
+                    key=f"cat_{item['id']}",
+                )
+                new_order = st.number_input(
+                    "表示順", 0, 999, item.get("sort_order", 0), key=f"ord_{item['id']}"
+                )
+
+                col_save, col_del = st.columns([1, 1])
+                with col_save:
+                    if st.button("💾 更新", key=f"upd_{item['id']}", type="primary"):
+                        update_learning_resource(item["id"], {
+                            "title": new_title,
+                            "description": new_desc,
+                            "content": new_content,
+                            "tip": new_tip,
+                            "category": new_cat,
+                            "sort_order": new_order,
+                        })
+                        st.success("更新しました")
+                        st.rerun()
+                with col_del:
+                    if st.button("🗑️ 削除", key=f"del_{item['id']}"):
+                        delete_learning_resource(item["id"])
+                        st.success("削除しました")
+                        st.rerun()
+
+        st.markdown("---")
+
+
+def _resources_add(course_id: str, teacher_id: str):
+    """新規プロンプト追加"""
+    st.markdown("#### ➕ 新しいプロンプトを追加")
+
+    if not _is_uuid(course_id):
+        st.warning("DBコースでのみ利用可能です")
+        return
+
+    new_cat = st.selectbox(
+        "カテゴリ",
+        list(RESOURCE_CATEGORIES.keys()),
+        format_func=lambda x: RESOURCE_CATEGORIES.get(x, x),
+        key="new_res_cat",
+    )
+    new_title = st.text_input("タイトル", placeholder="例: エッセイ構成チェック", key="new_res_title")
+    new_desc = st.text_input("説明", placeholder="例: エッセイの構成・論理展開をチェック", key="new_res_desc")
+    new_content = st.text_area(
+        "プロンプト本文",
+        placeholder="Please review the structure...",
+        height=250,
+        key="new_res_content",
+    )
+    new_tip = st.text_input("💡 ヒント（任意）", placeholder="例: 文法チェックと構成チェックを分けると効果的", key="new_res_tip")
+    new_order = st.number_input("表示順（小さいほど上）", 0, 999, 0, key="new_res_order")
+
+    if st.button("プロンプトを追加", type="primary", key="btn_add_resource"):
+        if not new_title:
+            st.warning("タイトルを入力してください")
+        elif not new_content:
+            st.warning("プロンプト本文を入力してください")
+        else:
+            create_learning_resource(
+                teacher_id=teacher_id,
+                course_id=course_id,
+                resource_type='prompt',
+                category=new_cat,
+                title=new_title,
+                description=new_desc,
+                content=new_content,
+                tip=new_tip,
+                sort_order=new_order,
+            )
+            st.success(f"「{new_title}」を追加しました！")
+            st.rerun()
+
+
+def _resources_import(course_id: str, teacher_id: str, existing_resources: list):
+    """ハードコード済みプロンプト集からの一括インポート"""
+    st.markdown("#### 📥 デフォルトプロンプト集をインポート")
+    st.caption("あらかじめ用意されたプロンプト集をこのコースに一括登録します")
+
+    if not _is_uuid(course_id):
+        st.warning("DBコースでのみ利用可能です")
+        return
+
+    if existing_resources:
+        st.info(f"このコースには既に {len(existing_resources)} 件のプロンプトが登録されています。重複が発生する可能性があります。")
+
+    # インポートするカテゴリを選択
+    from views.learning_resources import AI_PROMPTS
+
+    available_cats = list(AI_PROMPTS.keys())
+    selected_cats = st.multiselect(
+        "インポートするカテゴリを選択",
+        available_cats,
+        default=available_cats,
+        format_func=lambda x: RESOURCE_CATEGORIES.get(x, x),
+        key="import_cats",
+    )
+
+    # プレビュー
+    total_count = 0
+    for cat in selected_cats:
+        cat_data = AI_PROMPTS[cat]
+        total_count += len(cat_data["prompts"])
+
+    st.markdown(f"**{total_count} 件のプロンプトをインポートします**")
+
+    if st.button("一括インポート実行", type="primary", key="btn_import"):
+        rows = []
+        for cat in selected_cats:
+            cat_data = AI_PROMPTS[cat]
+            for i, p in enumerate(cat_data["prompts"]):
+                rows.append({
+                    "resource_type": "prompt",
+                    "category": cat,
+                    "title": p["title"],
+                    "description": p.get("description", ""),
+                    "content": p["prompt"],
+                    "tip": p.get("tip", ""),
+                    "sort_order": i,
+                })
+
+        count = bulk_import_learning_resources(teacher_id, course_id, rows)
+        st.success(f"✅ {count} 件をインポートしました！")
+        st.rerun()
+
+
+# ============================================================
 # 共通保存ヘルパー
 # ============================================================
 
 def _save(course_id: str, field: str, value):
     """フィールドをDBに保存し、結果をUIに表示"""
+    if not _is_uuid(course_id):
+        # ハードコードクラスの場合はsession_stateに保存
+        key = f"_settings_{course_id}"
+        if key not in st.session_state:
+            st.session_state[key] = {}
+        st.session_state[key][field] = value
+        st.success("✅ 設定を保存しました（セッション内）")
+        return
+
     try:
         update_course_settings_field(course_id, field, value)
         st.success("✅ DBに保存しました")
