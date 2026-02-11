@@ -2,6 +2,7 @@ import streamlit as st
 from utils.auth import get_current_user, require_auth
 from datetime import datetime
 import random
+from utils.loading_tips import loading_with_tips, show_quick_tip
 from utils.database import (
     log_speaking_practice,
     get_speaking_practice_history,
@@ -395,7 +396,7 @@ def show_ai_text_generation(user):
         if not topic:
             st.warning("トピックを入力してください")
         else:
-            with st.spinner("テキストを生成中..."):
+            with loading_with_tips("テキストを生成中... / Generating text...", context="generating"):
                 generated = generate_reading_text(
                     topic, difficulty, length, style,
                     include_vocab, include_tips
@@ -647,7 +648,7 @@ def show_practice_interface(material, user):
     
     if audio_bytes:
         if st.button("📊 評価する", type="primary", key=f"eval_{material['id']}"):
-            with st.spinner("評価中..."):
+            with loading_with_tips("音声を評価しています... / Evaluating your pronunciation...", context="evaluation"):
                 import time
                 time.sleep(0.5)
                 
@@ -846,7 +847,7 @@ def show_speech_practice(user):
         if st.button("🎯 評価する", type="primary"):
             import random
             
-            with st.spinner("評価中..."):
+            with loading_with_tips("スピーチを評価しています... / Evaluating your speech...", context="speaking"):
                 import time
                 time.sleep(1)
             
@@ -1060,7 +1061,7 @@ def show_assignment_submission(user):
                 st.warning("⚠️ テキストを入力してから提出してください")
             else:
                 if st.button("📤 提出して評価 / Submit & Evaluate", type="primary"):
-                    with st.spinner("提出中... / Submitting..."):
+                    with loading_with_tips("提出中... / Submitting & evaluating...", context="evaluation"):
                         # 仮評価（将来はAzure Speech / SpeechAce連携）
                         score = random.randint(65, 95)
                         pronunciation = random.randint(60, 95)
