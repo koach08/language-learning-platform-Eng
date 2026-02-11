@@ -216,40 +216,40 @@ def show():
     if not course_id:
         selected_class = st.session_state.get('selected_class')
         if selected_class:
-            # ハードコードクラスキーをcourse_idとして使用
             course_id = selected_class
             classes = st.session_state.get('teacher_classes', {})
             course_name = classes.get(selected_class, {}).get('name', selected_class)
-            # 以降の処理で使えるようにセット
             st.session_state['selected_course_id'] = course_id
             st.session_state['selected_course_name'] = course_name
 
+    # それでもない場合 → ページ内でコース選択UIを表示
     if not course_id:
-        # デバッグ: 何がsession_stateにあるか表示
-        with st.expander("🔍 デバッグ情報（原因特定用）"):
-            st.write("selected_course_id:", st.session_state.get('selected_course_id'))
-            st.write("selected_course_name:", st.session_state.get('selected_course_name'))
-            st.write("selected_class:", st.session_state.get('selected_class'))
-            st.write("teacher_classes keys:", list(st.session_state.get('teacher_classes', {}).keys()))
-
-        st.warning("コースが選択されていません。教員ホームからコースを選択してください。")
-
-        # 簡易コース選択UI（フォールバック）
+        # ハードコードクラスから選択
         classes = st.session_state.get('teacher_classes', {})
+
+        # teacher_classesが未初期化の場合、デフォルトをセット
+        if not classes:
+            from views.teacher_home import DEFAULT_CLASSES
+            classes = DEFAULT_CLASSES.copy()
+            st.session_state['teacher_classes'] = classes
+
         if classes:
-            st.markdown("#### 👇 ここからコースを選択できます")
+            st.info("📚 設定するコースを選択してください")
             selected = st.selectbox(
                 "コースを選択",
                 list(classes.keys()),
                 format_func=lambda x: classes[x].get('name', x),
-                key="fallback_course_select",
+                key="course_settings_select",
             )
-            if st.button("このコースで設定を開く", type="primary"):
-                st.session_state['selected_class'] = selected
-                st.session_state['selected_course_id'] = selected
-                st.session_state['selected_course_name'] = classes[selected].get('name', selected)
-                st.rerun()
-        return
+            # 選択したら即座にセット（ボタン不要）
+            course_id = selected
+            course_name = classes[selected].get('name', selected)
+            st.session_state['selected_class'] = selected
+            st.session_state['selected_course_id'] = course_id
+            st.session_state['selected_course_name'] = course_name
+        else:
+            st.warning("コースが見つかりません。教員ホームからコースを作成してください。")
+            return
 
     st.info(f"📚 **{course_name}** の設定")
 
