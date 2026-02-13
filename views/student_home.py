@@ -26,9 +26,47 @@ def show():
     class_name = user.get('class_name')
     
     if not class_key and not st.session_state.get('student_registered_classes'):
-        st.warning("⚠️ クラスに登録されていません")
-        st.info("ログアウトして、新規登録からクラスを選択してください")
-        return
+        # DBからenrollments確認
+        enrolled_courses = []
+        try:
+            from utils.database import get_student_enrollments
+            enrollments = get_student_enrollments(user['id'])
+            enrolled_courses = [e['courses'] for e in enrollments if e.get('courses')]
+        except Exception:
+            pass
+
+        if enrolled_courses:
+            # DB上でコースに登録済み
+            st.session_state.student_registered_classes = [
+                {'class_key': c['id'], 'name': c['name'],
+                 'display_name': f"{c['name']}（{c.get('year', '')}{c.get('semester', '')}）"}
+                for c in enrolled_courses
+            ]
+        else:
+            st.warning("⚠️ クラスに登録されていません")
+            st.markdown("**クラスコードを入力して登録してください：**")
+            with st.form("enroll_form"):
+                code_input = st.text_input("クラスコード", placeholder="例: ENG1A2025")
+                enroll_btn = st.form_submit_button("📥 登録する", type="primary")
+                if enroll_btn and code_input.strip():
+                    try:
+                        from utils.database import get_course_by_class_code, enroll_student
+                        course = get_course_by_class_code(code_input.strip())
+                        if course:
+                            enroll_student(user['id'], course['id'])
+                            st.success(f"✅ 「{course['name']}」に登録しました！")
+                            st.cache_data.clear()
+                            import time
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("❌ そのクラスコードは見つかりません。先生に確認してください。")
+                    except Exception as e:
+                        if 'duplicate' in str(e).lower():
+                            st.warning("すでにこのクラスに登録済みです")
+                        else:
+                            st.error(f"登録エラー: {e}")
+            return
     
     if class_name:
         st.info(f"📚 **{class_name}**")

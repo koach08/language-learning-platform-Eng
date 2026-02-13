@@ -199,6 +199,38 @@ def unenroll_student(student_id: str, course_id: str) -> bool:
     return len(result.data) > 0
 
 
+def get_course_by_class_code(class_code: str) -> Optional[Dict]:
+    """クラスコードでコースを検索"""
+    supabase = get_supabase_client()
+    result = supabase.table('courses')\
+        .select('*')\
+        .eq('class_code', class_code)\
+        .eq('is_active', True)\
+        .execute()
+    return result.data[0] if result.data else None
+
+
+def get_student_enrollments(student_id: str) -> List[Dict]:
+    """学生の履修コース一覧を取得"""
+    supabase = get_supabase_client()
+    result = supabase.table('enrollments')\
+        .select('*, courses(*)')\
+        .eq('student_id', student_id)\
+        .execute()
+    return result.data
+
+
+def get_all_students() -> List[Dict]:
+    """全学生一覧を取得（教員用）"""
+    supabase = get_supabase_client()
+    result = supabase.table('users')\
+        .select('*')\
+        .eq('role', 'student')\
+        .order('name')\
+        .execute()
+    return result.data
+
+
 # ============================================================
 # Assignment Operations
 # ============================================================

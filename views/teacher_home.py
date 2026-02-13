@@ -218,8 +218,8 @@ def show():
                 }
                 for s in db_students
             ]
-        except Exception:
-            pass
+        except Exception as e:
+            st.warning(f"学生データ取得エラー: {e}")
 
     st.markdown("---")
 
@@ -450,56 +450,32 @@ def show_recent_class_activity(class_key):
         st.markdown(f"1. 学生にクラスコードを共有: `{code}`")
         st.markdown("2. 学生は新規登録時にこのコードを入力")
         st.markdown("3. 自動的にこのクラスに登録されます")
-
-        # DBコースの場合、実際の活動ログを取得する（将来対応）
-        db_id = class_data.get('db_id')
-        if db_id:
-            try:
-                from utils.database import get_course_submissions
-                submissions = get_course_submissions(db_id, limit=5)
-                if submissions:
-                    st.markdown("---")
-                    st.markdown("**最近の提出:**")
-                    for s in submissions:
-                        u = s.get('users', {}) or {}
-                        st.markdown(f"- **{u.get('name', '?')}** — {s.get('module_type', '')} ({s.get('created_at', '')[:10]})")
-            except Exception:
-                pass
         return
 
-    # 学生がいる場合の活動表示
-    # TODO: practice_logs / submissions テーブルから実データを取得
-    activities = [
-        {"time": "10分前", "student": "田中太郎", "action": "音読練習を完了", "score": 78},
-        {"time": "30分前", "student": "鈴木花子", "action": "単語クイズを完了", "score": 85},
-        {"time": "1時間前", "student": "佐藤一郎", "action": "エッセイを提出", "score": 72},
-        {"time": "2時間前", "student": "山田美咲", "action": "リスニング練習を完了", "score": 80},
-    ]
-
-    for act in activities[:5]:
-        col1, col2, col3 = st.columns([1, 3, 1])
+    # 登録学生の名簿を表示
+    st.markdown("#### 👥 登録学生一覧")
+    for i, s in enumerate(class_students, 1):
+        col1, col2, col3 = st.columns([1, 3, 3])
         with col1:
-            st.caption(act['time'])
+            st.caption(f"{i}")
         with col2:
-            st.markdown(f"**{act['student']}** が {act['action']}")
+            st.markdown(f"**{s['name']}**")
         with col3:
-            st.markdown(f"{act['score']}点")
+            st.caption(s.get('email', '') or s.get('student_id', ''))
 
-    if st.button("すべての活動を見る"):
-        st.session_state['current_view'] = 'teacher_dashboard'
-        st.rerun()
-
-    st.markdown("---")
-
-    at_risk = [s for s in class_students if s.get('days_since_active', 0) > 7 or s.get('avg_score', 100) < 50]
-    if at_risk:
-        st.markdown("### ⚠️ 要注意学生")
-        for s in at_risk[:3]:
-            issues = []
-            if s.get('days_since_active', 0) > 7:
-                issues.append(f"{s.get('days_since_active', 0)}日間活動なし")
-            if s.get('avg_score', 100) < 50:
-                issues.append(f"平均スコア {s.get('avg_score', 0):.1f}点")
-            st.warning(f"**{s['name']}** ({s.get('student_id', '')}) - {', '.join(issues)}")
-        if len(at_risk) > 3:
-            st.caption(f"他 {len(at_risk) - 3}名")
+    # 活動ログ（実データ）
+    db_id = class_data.get('db_id')
+    if db_id:
+        try:
+            from utils.database import get_course_submissions
+            submissions = get_course_submissions(db_id, limit=5)
+            if submissions:
+                st.markdown("---")
+                st.markdown("#### 📝 最近の提出")
+                for s in submissions:
+                    u = s.get('users', {}) or {}
+                    st.markdown(f"- **{u.get('name', '?')}** — {s.get('module_type', '')} ({s.get('created_at', '')[:10]})")
+            else:
+                st.caption("まだ提出物はありません")
+        except Exception:
+            st.caption("まだ提出物はありません")
