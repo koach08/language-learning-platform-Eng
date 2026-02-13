@@ -246,8 +246,18 @@ def show():
 def show_alert_summary_bar():
     """アラート通知バー（ページ上部）"""
     try:
+        # 選択中クラスのcourse_idを取得
+        selected_class = st.session_state.get('selected_class')
+        classes = st.session_state.get('teacher_classes', {})
+        course_id = None
+        if selected_class and selected_class in classes:
+            course_id = classes[selected_class].get('course_id')
+        
+        if not course_id:
+            return
+        
         from utils.teacher_tools import get_student_alerts
-        alerts = get_student_alerts()
+        alerts = get_student_alerts(course_id=course_id)
         high = len([a for a in alerts if a['severity'] == 'high'])
         medium = len([a for a in alerts if a['severity'] == 'medium'])
         if high > 0:
