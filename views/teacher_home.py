@@ -65,19 +65,8 @@ def _load_classes(user_id: str) -> dict:
     """
     try:
         db_courses = get_teacher_courses(user_id)
-    except Exception as e:
+    except Exception:
         db_courses = []
-        st.error(f"🐛 DB読み込みエラー: {e}")
-    
-    # デバッグ表示（問題解決後に削除）
-    with st.expander("🐛 デバッグ情報（開発用）", expanded=False):
-        st.write(f"user_id: `{user_id}`")
-        st.write(f"user_id type: `{type(user_id).__name__}`")
-        st.write(f"db_courses count: `{len(db_courses) if db_courses else 0}`")
-        if db_courses:
-            st.json(db_courses[:2])
-        else:
-            st.warning("DBからコースが取得できませんでした")
 
     if db_courses:
         classes = {}
