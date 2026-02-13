@@ -42,6 +42,7 @@ grades = safe_import("grades")
 learning_log = safe_import("learning_log")
 test_prep = safe_import("test_prep")
 learning_resources = safe_import("learning_resources")
+student_profile = safe_import("student_profile")
 
 def get_student_enabled_modules(user):
     class_key = user.get("class_key")
@@ -239,6 +240,7 @@ def main():
         "grades": grades.show if grades else teacher_home.show,
         "learning_log": learning_log.show if learning_log else student_home.show,
         "test_prep": test_prep.show if test_prep else student_home.show,
+        "student_profile": student_profile.show if student_profile else student_home.show,
     }
     views.get(view, student_home.show if user["role"] == "student" else teacher_home.show)()
 

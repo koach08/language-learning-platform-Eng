@@ -103,6 +103,7 @@ def _load_classes(user_id: str) -> dict:
 def _migrate_default_to_db(user_id: str) -> int:
     """DEFAULT_CLASSESをDBに一括登録する（初回マイグレーション用）"""
     created = 0
+    errors = []
     for key, cls in DEFAULT_CLASSES.items():
         try:
             course = create_course(
@@ -115,13 +116,21 @@ def _migrate_default_to_db(user_id: str) -> int:
             )
             if course:
                 # course_settingsにモジュール設定を保存
-                from utils.database import upsert_course_settings
-                upsert_course_settings(course['id'], {
-                    'modules': cls['modules'],
-                })
+                try:
+                    from utils.database import upsert_course_settings
+                    upsert_course_settings(course['id'], {
+                        'modules': cls['modules'],
+                    })
+                except Exception as e2:
+                    errors.append(f"設定保存エラー ({cls['name']}): {e2}")
                 created += 1
         except Exception as e:
-            st.warning(f"コース作成エラー ({cls['name']}): {e}")
+            errors.append(f"コース作成エラー ({cls['name']}): {e}")
+
+    # エラーがあれば表示（消えないようにする）
+    for err in errors:
+        st.error(err)
+
     return created
 
 
@@ -156,10 +165,19 @@ def show():
         with col1:
             if st.button("📥 デフォルトクラスをDBに一括登録", type="primary", use_container_width=True):
                 with st.spinner("コースを登録中..."):
-                    count = _migrate_default_to_db(user['id'])
-                st.success(f"✅ {count}件のコースをDBに登録しました")
-                st.cache_data.clear()
-                st.rerun()
+                    try:
+                        count = _migrate_default_to_db(user['id'])
+                        if count > 0:
+                            st.success(f"✅ {count}件のコースをDBに登録しました")
+                            st.cache_data.clear()
+                            import time
+                            time.sleep(2)  # 成功メッセージを見せる
+                            st.rerun()
+                        else:
+                            st.error("❌ コースの登録に失敗しました。上のエラーメッセージを確認してください。")
+                    except Exception as e:
+                        st.error(f"❌ 一括登録エラー: {e}")
+                        st.code(str(e))  # 詳細エラーを表示
         with col2:
             if st.button("➕ 新規コースを作成", use_container_width=True):
                 st.session_state['current_view'] = 'class_settings'
