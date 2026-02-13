@@ -29,12 +29,7 @@ def record_audio(key="mic_recorder", text="🎤 マイクで録音 / Record"):
 
 
 def show_mic_or_upload(key_prefix="audio", allow_upload=True):
-    """マイク録音 or ファイルアップロードの選択UI（Safari対応版）
-
-    Safari では audio-recorder-streamlit が MediaRecorder API の
-    互換性問題でエラーになることがあるため、常にファイルアップロード
-    オプションを表示してフォールバックできるようにする。
-    """
+    """マイク録音 or ファイルアップロードの選択UI（Safari対応・UX改善版）"""
 
     input_method = st.radio(
         "入力方法 / Input method",
@@ -46,21 +41,57 @@ def show_mic_or_upload(key_prefix="audio", allow_upload=True):
     audio_bytes = None
 
     if input_method == "🎤 マイクで録音":
-        st.caption("ボタンを押して録音開始 → もう一度押して停止")
-        audio_bytes = record_audio(key=f"{key_prefix}_mic")
 
+        # ── やり直し用カウンター ──
+        reset_key = f"{key_prefix}_reset_count"
+        if reset_key not in st.session_state:
+            st.session_state[reset_key] = 0
+
+        # 録音済み音声を保持するキー
+        saved_audio_key = f"{key_prefix}_saved_audio"
+
+        # ── 録音手順（常に表示） ──
+        st.info(
+            "**📋 録音の手順:**\n"
+            "① 🔵 青いマイクボタンを**クリック** → ボタンが **🔴 赤** に変わり録音開始\n"
+            "② そのまま英文を読み上げる（録音中はボタンが赤いままです）\n"
+            "③ 読み終わったら **🔴 赤いボタンをもう一度クリック** → 録音停止\n"
+            "④ 下に ▶️ 再生プレーヤーと「✅ 録音完了！」が表示されます"
+        )
+
+        # ── 録音コンポーネント ──
+        mic_key = f"{key_prefix}_mic_v{st.session_state[reset_key]}"
+        new_audio = record_audio(key=mic_key)
+
+        # 新しい録音があれば保存
+        if new_audio:
+            st.session_state[saved_audio_key] = new_audio
+
+        # 保存済みの音声を取得
+        audio_bytes = st.session_state.get(saved_audio_key)
+
+        # ── 録音結果の表示 ──
         if audio_bytes:
+            st.success("✅ 録音完了！ 下のプレーヤーで確認できます / Recording complete!")
             st.audio(audio_bytes, format="audio/wav")
-            st.success("✅ 録音完了！")
+
+            # やり直しボタン
+            if st.button("🔄 やり直す / Record again", key=f"{key_prefix}_retry_{st.session_state[reset_key]}"):
+                st.session_state[reset_key] += 1
+                if saved_audio_key in st.session_state:
+                    del st.session_state[saved_audio_key]
+                st.rerun()
+        else:
+            st.warning("⏳ 録音待ち — 上の青いマイクボタン 🎤 を押してください / Press the blue mic button above to start")
 
         st.caption(
-            "⚠️ Safari で録音エラーが出る場合は「📁 ファイルをアップロード」を使うか、"
-            "Chrome / Edge をお試しください。"
+            "⚠️ Safari で録音できない場合は「📁 ファイルをアップロード」を選ぶか、"
+            "Chrome / Edge をお使いください。"
         )
 
     else:
         st.info(
-            "💡 スマホのボイスメモ等で録音した音声ファイルをアップロードできます。"
+            "💡 スマホのボイスメモや録音アプリで録音した音声ファイルをアップロードできます。"
         )
         uploaded = st.file_uploader(
             "音声ファイル（WAV, MP3, M4A, WEBM） / Upload audio file",
