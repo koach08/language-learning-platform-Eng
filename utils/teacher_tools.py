@@ -71,73 +71,34 @@ def get_feedback_suggestion(module, score):
 
 # ===== 自動アラート =====
 
-def get_student_alerts():
-    """学生の要注意アラートを生成"""
+def get_student_alerts(course_id: str = None):
+    """学生の要注意アラートを生成（DB連携）"""
     alerts = []
     
-    # デモデータ（実際にはDB接続後に実データを使用）
-    demo_students = st.session_state.get('demo_student_data', [
-        {
-            'name': '田中 太郎',
-            'student_id': 's001',
-            'last_login': (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d"),
-            'submissions': 2,
-            'total_assignments': 4,
-            'avg_score': 58,
-            'score_trend': -12,
-            'streak': 0,
-            'weekly_study_minutes': 0,
-        },
-        {
-            'name': '鈴木 花子',
-            'student_id': 's002',
-            'last_login': (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"),
-            'submissions': 4,
-            'total_assignments': 4,
-            'avg_score': 82,
-            'score_trend': +5,
-            'streak': 12,
-            'weekly_study_minutes': 180,
-        },
-        {
-            'name': '佐藤 健',
-            'student_id': 's003',
-            'last_login': (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
-            'submissions': 1,
-            'total_assignments': 4,
-            'avg_score': 71,
-            'score_trend': -3,
-            'streak': 0,
-            'weekly_study_minutes': 30,
-        },
-        {
-            'name': '山田 美咲',
-            'student_id': 's004',
-            'last_login': (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
-            'submissions': 3,
-            'total_assignments': 4,
-            'avg_score': 45,
-            'score_trend': -8,
-            'streak': 3,
-            'weekly_study_minutes': 90,
-        },
-        {
-            'name': '高橋 翔',
-            'student_id': 's005',
-            'last_login': (datetime.now() - timedelta(days=21)).strftime("%Y-%m-%d"),
-            'submissions': 0,
-            'total_assignments': 4,
-            'avg_score': 0,
-            'score_trend': 0,
-            'streak': 0,
-            'weekly_study_minutes': 0,
-        },
-    ])
+    # コースIDの取得
+    if not course_id:
+        selected_class = st.session_state.get('selected_class')
+        classes = st.session_state.get('teacher_classes', {})
+        if selected_class and selected_class in classes:
+            course_id = classes[selected_class].get('course_id') or classes[selected_class].get('db_id')
     
-    for student in demo_students:
+    if not course_id:
+        return alerts
+    
+    # DBから学生の活動サマリーを取得
+    try:
+        from utils.database import get_students_with_activity_summary
+        db_students = get_students_with_activity_summary(course_id)
+    except Exception as e:
+        st.warning(f"学生データの取得に失敗しました: {e}")
+        return alerts
+    
+    if not db_students:
+        return alerts
+    
+    for student in db_students:
         # 長期未ログイン
-        last_login = datetime.strptime(student['last_login'], "%Y-%m-%d")
-        days_inactive = (datetime.now() - last_login).days
+        days_inactive = student.get('days_since_active', 0)
         
         if days_inactive >= 14:
             alerts.append({
@@ -389,25 +350,41 @@ def show_grade_tools():
         
         import pandas as pd
         
-        # デモデータ
-        demo_grades = pd.DataFrame({
-            '学籍番号': ['s001', 's002', 's003', 's004', 's005'],
-            '名前': ['田中太郎', '鈴木花子', '佐藤健', '山田美咲', '高橋翔'],
-            'Speaking': [72, 85, 78, 45, 0],
-            'Writing': [68, 88, 75, 42, 0],
-            'Reading': [75, 82, 80, 50, 0],
-            'Vocabulary': [70, 90, 72, 48, 0],
-            'Listening': [65, 80, 70, 40, 0],
-            '平均': [70, 85, 75, 45, 0],
-            '授業外学習': [120, 350, 90, 60, 0],
-        })
+        # DBから成績データを取得
+        course_id = None
+        selected_class = st.session_state.get('selected_class')
+        classes = st.session_state.get('teacher_classes', {})
+        if selected_class and selected_class in classes:
+            course_id = classes[selected_class].get('course_id') or classes[selected_class].get('db_id')
         
-        st.dataframe(demo_grades, use_container_width=True, hide_index=True)
-        
-        csv = demo_grades.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            "📤 CSVダウンロード",
-            csv,
-            f"grades_{datetime.now().strftime('%Y%m%d')}.csv",
-            "text/csv"
-        )
+        if course_id:
+            try:
+                from utils.database import get_students_with_activity_summary
+                students_data = get_students_with_activity_summary(course_id)
+                
+                if students_data:
+                    grades_df = pd.DataFrame([{
+                        '学籍番号': s.get('student_id', ''),
+                        '名前': s.get('name', ''),
+                        '平均スコア': s.get('avg_score', 0),
+                        '提出数': s.get('submissions', 0),
+                        '総課題数': s.get('total_assignments', 0),
+                        '練習回数': s.get('practice_count', 0),
+                        '週間学習(分)': s.get('weekly_study_minutes', 0),
+                    } for s in students_data])
+                    
+                    st.dataframe(grades_df, use_container_width=True, hide_index=True)
+                    
+                    csv = grades_df.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button(
+                        "📤 CSVダウンロード",
+                        csv,
+                        f"grades_{datetime.now().strftime('%Y%m%d')}.csv",
+                        "text/csv"
+                    )
+                else:
+                    st.info("まだ成績データがありません。学生が課題を提出すると表示されます。")
+            except Exception as e:
+                st.error(f"成績データの取得に失敗しました: {e}")
+        else:
+            st.warning("コースが選択されていません")
