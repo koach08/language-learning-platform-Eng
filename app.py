@@ -111,14 +111,14 @@ if user:
             if st.button("✏️ Writing", use_container_width=True):
                 st.session_state["current_view"] = "writing"
                 st.rerun()
-            if st.button("📚 Vocabulary", use_container_width=True):
-                st.session_state["current_view"] = "vocabulary"
-                st.rerun()
             if st.button("📖 Reading", use_container_width=True):
                 st.session_state["current_view"] = "reading"
                 st.rerun()
             if st.button("🎧 Listening", use_container_width=True):
                 st.session_state["current_view"] = "listening"
+                st.rerun()
+            if st.button("📚 Vocabulary", use_container_width=True):
+                st.session_state["current_view"] = "vocabulary"
                 st.rerun()
             if st.button("📝 検定対策", use_container_width=True):
                 st.session_state["current_view"] = "test_prep"
