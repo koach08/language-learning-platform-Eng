@@ -47,7 +47,6 @@ def show_mic_or_upload(key_prefix="audio", allow_upload=True):
         if reset_key not in st.session_state:
             st.session_state[reset_key] = 0
 
-        # 録音済み音声を保持するキー
         saved_audio_key = f"{key_prefix}_saved_audio"
 
         # ── 録音手順（常に表示） ──
@@ -63,11 +62,12 @@ def show_mic_or_upload(key_prefix="audio", allow_upload=True):
         mic_key = f"{key_prefix}_mic_v{st.session_state[reset_key]}"
         new_audio = record_audio(key=mic_key)
 
-        # 新しい録音があれば保存
+        # 新しい録音があれば処理中表示付きで保存
         if new_audio:
-            st.session_state[saved_audio_key] = new_audio
+            if new_audio != st.session_state.get(saved_audio_key):
+                with st.spinner("⏳ 録音データを処理しています... / Processing audio..."):
+                    st.session_state[saved_audio_key] = new_audio
 
-        # 保存済みの音声を取得
         audio_bytes = st.session_state.get(saved_audio_key)
 
         # ── 録音結果の表示 ──
@@ -75,7 +75,6 @@ def show_mic_or_upload(key_prefix="audio", allow_upload=True):
             st.success("✅ 録音完了！ 下のプレーヤーで確認できます / Recording complete!")
             st.audio(audio_bytes, format="audio/wav")
 
-            # やり直しボタン
             if st.button("🔄 やり直す / Record again", key=f"{key_prefix}_retry_{st.session_state[reset_key]}"):
                 st.session_state[reset_key] += 1
                 if saved_audio_key in st.session_state:
