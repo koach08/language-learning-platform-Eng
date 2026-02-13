@@ -75,44 +75,46 @@ def show_student_view():
     """学生用：課題提出"""
     st.markdown("### 📋 課題一覧")
     
-    demo_assignments = [
-        {
-            "id": 1, 
-            "title": "自己紹介", 
-            "type": "student_text", 
-            "text": "", 
-            "instructions": "自分自身について英語で紹介してください。ChatGPTなどで作成したテキストを使用してもOKです。",
-            "require_text": True
-        },
-        {
-            "id": 2, 
-            "title": "好きな本・映画の紹介", 
-            "type": "student_text", 
-            "text": "", 
-            "instructions": "好きな本や映画について紹介してください。",
-            "require_text": True
-        },
-        {
-            "id": 3, 
-            "title": "自由スピーチ", 
-            "type": "free_speech", 
-            "text": "", 
-            "instructions": "好きなトピックについて自由に話してください（1〜3分程度）",
-            "require_text": False
-        },
-        {
-            "id": 4, 
-            "title": "サンプル音読（教員指定）", 
-            "type": "teacher_text", 
-            "text": "Climate change is one of the most pressing issues of our time. Scientists around the world agree that human activities are contributing to global warming.", 
-            "instructions": "以下のテキストを読み上げてください。",
-            "require_text": False
-        },
-    ]
+    user = get_current_user()
+    
+    # DBから実課題を取得
+    assignments = _load_speaking_assignments(user)
+    is_demo = False
+    
+    if not assignments:
+        # 実課題がない場合はフォールバック表示
+        is_demo = True
+        st.warning("⚠️ **サンプル課題を表示中** — 教員が課題を作成すると実際の課題に切り替わります。サンプル課題でも練習・提出は可能です。")
+        assignments = [
+            {
+                "id": "sample_1", 
+                "title": "【サンプル】自己紹介", 
+                "type": "student_text", 
+                "text": "", 
+                "instructions": "自分自身について英語で紹介してください。ChatGPTなどで作成したテキストを使用してもOKです。",
+                "require_text": True
+            },
+            {
+                "id": "sample_2", 
+                "title": "【サンプル】好きな本・映画の紹介", 
+                "type": "student_text", 
+                "text": "", 
+                "instructions": "好きな本や映画について紹介してください。",
+                "require_text": True
+            },
+            {
+                "id": "sample_3", 
+                "title": "【サンプル】自由スピーチ", 
+                "type": "free_speech", 
+                "text": "", 
+                "instructions": "好きなトピックについて自由に話してください（1〜3分程度）",
+                "require_text": False
+            },
+        ]
     
     selected = st.selectbox(
         "課題を選択",
-        demo_assignments,
+        assignments,
         format_func=lambda x: x['title']
     )
     
@@ -324,6 +326,55 @@ def show_language_details(gpt_result):
     
     formatted = format_gpt_feedback(gpt_result)
     st.markdown(formatted)
+
+
+def _load_speaking_assignments(user):
+    """DBからスピーキング課題を取得"""
+    try:
+        # コースIDを取得
+        course_id = None
+        if user['role'] == 'student':
+            registered = st.session_state.get('student_registered_classes', [])
+            if registered:
+                course_id = registered[0].get('class_key')
+        
+        if not course_id:
+            return []
+        
+        from utils.database import get_course_assignments
+        all_assignments = get_course_assignments(course_id)
+        
+        if not all_assignments:
+            return []
+        
+        # スピーキング課題のみフィルタ
+        speaking = []
+        for a in all_assignments:
+            atype = (a.get('assignment_type') or '').lower()
+            if 'speaking' in atype or 'speech' in atype or 'pronunciation' in atype or 'reading_aloud' in atype:
+                speaking.append({
+                    'id': a['id'],
+                    'title': a.get('title', ''),
+                    'type': _map_assignment_type(a),
+                    'text': a.get('target_text', '') or a.get('description', '') or '',
+                    'instructions': a.get('instructions', '') or a.get('description', ''),
+                    'require_text': a.get('require_text_submission', True),
+                })
+        
+        return speaking
+    except Exception:
+        return []
+
+
+def _map_assignment_type(assignment):
+    """DB課題タイプをUI用に変換"""
+    atype = (assignment.get('assignment_type') or '').lower()
+    if 'teacher_text' in atype or 'reading_aloud' in atype:
+        return 'teacher_text'
+    elif 'free' in atype or 'speech' in atype:
+        return 'free_speech'
+    else:
+        return 'student_text'
 
 
 def get_cefr_from_score(score):

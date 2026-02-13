@@ -1,5 +1,7 @@
 import streamlit as st
 from utils.auth import get_current_user, require_teacher
+from datetime import datetime
+
 
 @require_teacher
 def show():
@@ -13,89 +15,124 @@ def show():
     
     st.markdown("---")
     
+    # コースID取得
+    selected_class = st.session_state.get('selected_class')
+    classes = st.session_state.get('teacher_classes', {})
+    course_id = None
+    if selected_class and selected_class in classes:
+        course_id = classes[selected_class].get('course_id')
+    
+    if not course_id:
+        st.warning("クラスが選択されていません")
+        return
+    
     # フィルター
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
-        course = st.selectbox("コース", ["すべて", "英語I（前期）", "英語II（後期）"])
-    with col2:
         date_range = st.selectbox("期間", ["今週", "今月", "すべて"])
-    with col3:
+    with col2:
         student_filter = st.text_input("学生検索", placeholder="名前または学籍番号")
     
     st.markdown("---")
     
+    # DBからチャットセッションサマリーを取得
+    summary = _load_chat_summary(course_id)
+    
+    if not summary or summary['total_sessions'] == 0:
+        st.info("まだAI対話セッションがありません。学生がAI対話練習を行うとここに表示されます。")
+        return
+    
     # サマリー統計
     st.markdown("### 📊 サマリー")
     
+    total_students = len(st.session_state.get('class_students', {}).get(selected_class, []))
+    if total_students == 0:
+        # fallback: summary内の学生数を使う
+        total_students = summary['active_students']
+    
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("総セッション数", "156", "+23 今週")
+        st.metric("総セッション数", f"{summary['total_sessions']}")
     with col2:
-        st.metric("アクティブ学生", "45/50", "90%")
+        st.metric("アクティブ学生", f"{summary['active_students']}/{total_students}" if total_students > 0 else f"{summary['active_students']}")
     with col3:
-        st.metric("平均スコア", "72/100", "+3")
+        avg_score = summary['avg_score']
+        st.metric("平均スコア", f"{avg_score}/100" if avg_score > 0 else "-")
     with col4:
-        st.metric("平均セッション時間", "4.2分")
-    
-    st.markdown("---")
-    
-    # 頻出エラーパターン
-    st.markdown("### ⚠️ 頻出エラーパターン（クラス全体）")
-    
-    error_data = [
-        {"パターン": "冠詞の欠落（a/the）", "頻度": "78%", "例": "I am student → I am a student"},
-        {"パターン": "三単現のs忘れ", "頻度": "65%", "例": "He go → He goes"},
-        {"パターン": "不自然な表現（直訳）", "頻度": "52%", "例": "My hobby is → I enjoy"},
-        {"パターン": "時制の不一致", "頻度": "41%", "例": "Yesterday I go → Yesterday I went"},
-        {"パターン": "前置詞の誤用", "頻度": "38%", "例": "arrive to → arrive at"},
-    ]
-    
-    for error in error_data:
-        with st.expander(f"**{error['パターン']}** - {error['頻度']}の学生に見られる"):
-            st.markdown(f"例: ❌ `{error['例'].split(' → ')[0]}` → ✅ `{error['例'].split(' → ')[1]}`")
-            st.caption("💡 次回の授業で取り上げることを検討してください")
+        st.metric("学生数", f"{summary['active_students']}名")
     
     st.markdown("---")
     
     # 学生別ログ
     st.markdown("### 👥 学生別ログ")
     
-    # デモデータ
-    students = [
-        {"name": "山田太郎", "id": "2024001", "sessions": 8, "avg_score": 75, "last_active": "2時間前", "trend": "↑"},
-        {"name": "佐藤花子", "id": "2024002", "sessions": 12, "avg_score": 82, "last_active": "1日前", "trend": "→"},
-        {"name": "鈴木一郎", "id": "2024003", "sessions": 3, "avg_score": 58, "last_active": "5日前", "trend": "↓"},
-        {"name": "田中美咲", "id": "2024004", "sessions": 15, "avg_score": 88, "last_active": "30分前", "trend": "↑"},
-        {"name": "高橋健太", "id": "2024005", "sessions": 0, "avg_score": 0, "last_active": "未使用", "trend": "-"},
-    ]
+    students = summary.get('students', [])
+    
+    # フィルタリング
+    if student_filter:
+        filter_lower = student_filter.lower()
+        students = [
+            s for s in students 
+            if filter_lower in s.get('name', '').lower() or student_filter in s.get('id', '')
+        ]
+    
+    if not students:
+        st.info("該当する学生が見つかりません")
+        return
     
     for student in students:
-        trend_icon = {"↑": "🟢", "→": "🟡", "↓": "🔴", "-": "⚪"}.get(student["trend"], "")
+        trend_icon = {"↑": "🟢", "→": "🟡", "↓": "🔴", "-": "⚪"}.get(student.get("trend", "→"), "🟡")
         
-        with st.expander(f"{trend_icon} **{student['name']}** ({student['id']}) - {student['sessions']}セッション"):
+        session_count = student.get('sessions', 0)
+        avg = student.get('avg_score', 0)
+        
+        with st.expander(f"{trend_icon} **{student['name']}** ({student.get('id', '')}) - {session_count}セッション"):
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("平均スコア", f"{student['avg_score']}/100")
+                st.metric("平均スコア", f"{avg}/100" if avg > 0 else "-")
             with col2:
-                st.metric("セッション数", student['sessions'])
+                st.metric("セッション数", session_count)
             with col3:
-                st.caption(f"最終アクティブ: {student['last_active']}")
+                last_active = student.get('last_active', '')
+                if last_active:
+                    # ISO format → 表示用に変換
+                    try:
+                        dt = datetime.fromisoformat(last_active.replace('Z', '+00:00'))
+                        display_time = dt.strftime('%m/%d %H:%M')
+                    except (ValueError, TypeError):
+                        display_time = last_active[:16] if last_active else ''
+                    st.caption(f"最終アクティブ: {display_time}")
+                else:
+                    st.caption("最終アクティブ: -")
             
-            if student['sessions'] > 0:
+            if session_count > 0:
                 st.markdown("**最近のセッション:**")
                 
-                # セッション詳細（デモ）
-                session_demo = {
-                    "日時": "2024/2/5 14:30",
-                    "シチュエーション": "レストランでの注文",
-                    "スコア": "78/100",
-                    "発話数": "6回",
-                }
-                
-                st.markdown(f"📅 {session_demo['日時']} | 🎭 {session_demo['シチュエーション']} | 📊 {session_demo['スコア']}")
-                
-                if st.button(f"詳細を見る", key=f"detail_{student['id']}"):
-                    show_session_detail(student['name'])
+                recent = student.get('recent_sessions', [])
+                for session in recent[:3]:
+                    started = session.get('started_at', '')
+                    scenario = session.get('scenario') or session.get('situation') or ''
+                    s_score = session.get('score') or session.get('total_score') or 0
+                    
+                    # 日時表示
+                    try:
+                        dt = datetime.fromisoformat(started.replace('Z', '+00:00'))
+                        time_str = dt.strftime('%m/%d %H:%M')
+                    except (ValueError, TypeError):
+                        time_str = started[:16] if started else ''
+                    
+                    parts = [f"📅 {time_str}"]
+                    if scenario:
+                        parts.append(f"🎭 {scenario}")
+                    if s_score:
+                        parts.append(f"📊 {s_score}/100")
+                    
+                    st.markdown(" | ".join(parts))
+                    
+                    # 詳細ボタン
+                    session_id = session.get('id', '')
+                    if session_id and st.button(f"詳細を見る", key=f"detail_{session_id}"):
+                        show_session_detail_from_db(session_id, student['name'])
             else:
                 st.warning("まだ対話練習を行っていません")
                 st.caption("💡 個別に声かけを検討してください")
@@ -104,42 +141,86 @@ def show():
     
     # CSV出力
     st.markdown("### 📥 データ出力")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("📊 サマリーCSV出力", use_container_width=True):
-            st.success("ダウンロードリンクを生成しました（デモ）")
-    with col2:
-        if st.button("📋 詳細ログCSV出力", use_container_width=True):
-            st.success("ダウンロードリンクを生成しました（デモ）")
+    
+    if st.button("📊 サマリーCSV出力", use_container_width=True):
+        _export_chat_csv(summary)
 
 
-def show_session_detail(student_name):
-    """セッション詳細を表示"""
+def _load_chat_summary(course_id: str) -> dict:
+    """DBからチャットセッションサマリーを取得"""
+    try:
+        from utils.database import get_course_chat_session_summary
+        return get_course_chat_session_summary(course_id)
+    except Exception as e:
+        st.error(f"チャットデータの取得に失敗しました: {e}")
+        return {'total_sessions': 0, 'active_students': 0, 'avg_score': 0, 'students': []}
+
+
+def show_session_detail_from_db(session_id: str, student_name: str):
+    """セッション詳細を表示（DB連携）"""
     
     st.markdown(f"#### 💬 {student_name}さんの対話詳細")
     
-    # デモの会話ログ
-    messages = [
-        {"role": "AI", "content": "Hi there! Welcome to Ocean View Cafe. Can I get you something to drink?"},
-        {"role": "学生", "content": "Yes, I want coffee please."},
-        {"role": "AI", "content": "Sure! Would you like that hot or iced?"},
-        {"role": "学生", "content": "Hot coffee. And I want see menu."},
-        {"role": "AI", "content": "Of course! Here's the menu. Take your time."},
-        {"role": "学生", "content": "Thank you. What is recommend?"},
-    ]
+    try:
+        from utils.database import get_supabase_client
+        supabase = get_supabase_client()
+        
+        result = supabase.table('chat_sessions')\
+            .select('*')\
+            .eq('id', session_id)\
+            .execute()
+        
+        if not result.data:
+            st.info("セッションデータが見つかりません")
+            return
+        
+        session = result.data[0]
+        messages = session.get('messages') or []
+        
+        if not messages:
+            st.info("会話データがありません")
+            return
+        
+        for msg in messages:
+            role = msg.get('role', '')
+            content = msg.get('content', '')
+            if role == 'assistant':
+                st.markdown(f"🤖 **AI:** {content}")
+            elif role == 'user':
+                st.markdown(f"👤 **学生:** {content}")
+        
+        # フィードバック
+        feedback = session.get('feedback') or session.get('ai_feedback')
+        if feedback:
+            st.markdown("---")
+            st.markdown("**AIからのフィードバック:**")
+            st.info(feedback)
     
-    for msg in messages:
-        if msg["role"] == "AI":
-            st.markdown(f"🤖 **AI:** {msg['content']}")
-        else:
-            st.markdown(f"👤 **学生:** {msg['content']}")
+    except Exception as e:
+        st.error(f"セッション詳細の取得に失敗しました: {e}")
+
+
+def _export_chat_csv(summary: dict):
+    """チャットログCSV出力"""
+    import pandas as pd
     
-    st.markdown("---")
-    st.markdown("**AIからのフィードバック:**")
-    st.info("""
-    良かった点：積極的に会話を続けようとしている
+    students = summary.get('students', [])
+    if not students:
+        st.warning("エクスポートするデータがありません")
+        return
     
-    改善点：
-    - "I want see menu" → "Could I see the menu?" が自然
-    - "What is recommend?" → "What do you recommend?" が正しい
-    """)
+    df = pd.DataFrame([{
+        '名前': s.get('name', ''),
+        '学籍番号': s.get('id', ''),
+        'セッション数': s.get('sessions', 0),
+        '平均スコア': s.get('avg_score', 0),
+        'トレンド': s.get('trend', ''),
+    } for s in students])
+    
+    csv = df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button(
+        "📤 CSVダウンロード",
+        csv,
+        f"chat_logs_{datetime.now().strftime('%Y%m%d')}.csv",
+        "text/csv"
+    )

@@ -1,7 +1,6 @@
 import streamlit as st
 from utils.auth import get_current_user, require_auth
 from datetime import datetime, timedelta
-import random
 
 # 学習活動のカテゴリ
 ACTIVITY_CATEGORIES = {
@@ -55,7 +54,7 @@ def show():
     user_email = user.get('email', user.get('name', 'default'))
     
     if user_email not in st.session_state.learning_logs:
-        st.session_state.learning_logs[user_email] = generate_demo_logs()
+        st.session_state.learning_logs[user_email] = []
     
     user_logs = st.session_state.learning_logs[user_email]
     
@@ -498,40 +497,3 @@ def filter_logs_by_period(logs, period):
         return logs
     
     return [log for log in logs if datetime.strptime(log['date'], "%Y-%m-%d").date() >= start_date]
-
-
-def generate_demo_logs():
-    """デモ用ログ生成"""
-    logs = []
-    
-    demo_activities = [
-        {"category": "movie", "language": "english", "title": "Netflix「フレンズ」S1E3", "minutes": 25, "points": 4},
-        {"category": "reading", "language": "english", "title": "BBC News記事3本", "minutes": 30, "points": 6},
-        {"category": "app", "language": "spanish", "title": "Duolingo スペイン語", "minutes": 15, "points": 2},
-        {"category": "podcast", "language": "english", "title": "All Ears English Podcast", "minutes": 45, "points": 8},
-        {"category": "video", "language": "english", "title": "TED Talk: The Power of Introverts", "minutes": 20, "points": 3},
-        {"category": "conversation", "language": "english", "title": "言語交換（Tandem）", "minutes": 60, "points": 15},
-        {"category": "reading", "language": "english", "title": "Harry Potter 第3章", "minutes": 45, "points": 9},
-        {"category": "music", "language": "english", "title": "洋楽歌詞学習", "minutes": 30, "points": 3},
-    ]
-    
-    for i, activity in enumerate(demo_activities):
-        date = (datetime.now() - timedelta(days=i*2)).strftime("%Y-%m-%d")
-        logs.append({
-            "id": f"demo_log_{i}",
-            "date": date,
-            "category": activity['category'],
-            "category_name": ACTIVITY_CATEGORIES[activity['category']]['name'],
-            "language": activity['language'],
-            "language_name": LANGUAGES[activity['language']],
-            "title": activity['title'],
-            "description": "",
-            "duration_minutes": activity['minutes'],
-            "points": activity['points'],
-            "evidence_file": None,
-            "evidence_url": None,
-            "status": random.choice(["approved", "approved", "pending"]),
-            "created_at": date,
-        })
-    
-    return logs

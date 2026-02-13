@@ -134,80 +134,13 @@ def get_class_questions(class_key=None):
     return store['question_board']
 
 
-# ===== 初期デモデータ =====
+# ===== 初期データ（空） =====
 
 def init_demo_messages():
-    """デモメッセージを初期化"""
-    store = get_messages_store()
-    
-    if store['announcements'] or store['question_board']:
-        return
-    
-    # お知らせ
-    store['announcements'] = [
-        {
-            'id': 'ann_1',
-            'from_id': 'teacher',
-            'from_name': '先生',
-            'class_key': 'english_specific_a',
-            'title': '来週の授業について',
-            'body': '来週はスピーキングテストを行います。教科書のUnit 5を復習しておいてください。',
-            'priority': 'high',
-            'timestamp': '2026-02-03 09:00',
-            'read_by': [],
-        },
-        {
-            'id': 'ann_2',
-            'from_id': 'teacher',
-            'from_name': '先生',
-            'class_key': 'english_specific_a',
-            'title': '課題提出リマインダー',
-            'body': 'Self-Introduction Speechの締切は2/14です。まだ提出していない人は早めに提出してください。',
-            'priority': 'normal',
-            'timestamp': '2026-02-01 10:30',
-            'read_by': [],
-        },
-    ]
-    
-    # 質問掲示板
-    store['question_board'] = [
-        {
-            'id': 'q_1',
-            'from_id': 's002',
-            'from_name': '鈴木花子',
-            'class_key': 'english_specific_a',
-            'title': '発音記号の読み方がわかりません',
-            'body': 'θ と ð の違いがよくわかりません。練習のコツはありますか？',
-            'tags': ['pronunciation', 'speaking'],
-            'timestamp': '2026-02-04 14:20',
-            'replies': [
-                {
-                    'id': 'r_1',
-                    'from_id': 'teacher',
-                    'from_name': '先生',
-                    'from_role': 'teacher',
-                    'body': 'θ は舌を歯に軽く当てて息を出します（think）。ð は同じ位置で声を出します（this）。鏡を見ながら練習してみてください。',
-                    'timestamp': '2026-02-04 15:00',
-                    'is_best_answer': True,
-                }
-            ],
-            'resolved': True,
-            'upvotes': 3,
-        },
-        {
-            'id': 'q_2',
-            'from_id': 's003',
-            'from_name': '佐藤健',
-            'class_key': 'english_specific_a',
-            'title': 'エッセイの構成について',
-            'body': 'Introduction, Body, Conclusionの書き方のコツを教えてください。',
-            'tags': ['writing', 'essay'],
-            'timestamp': '2026-02-05 09:15',
-            'replies': [],
-            'resolved': False,
-            'upvotes': 5,
-        },
-    ]
+    """メッセージストアを初期化（空の状態で開始）"""
+    # デモデータは使用しない。
+    # 教員がお知らせを投稿するか、学生が質問を投稿するまで空。
+    pass
 
 
 # ===== UI表示関数 =====

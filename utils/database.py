@@ -1290,3 +1290,287 @@ def get_course_submissions(course_id: str, limit: int = 20) -> List[Dict]:
         .limit(limit)\
         .execute()
     return result.data
+
+
+# ============================================================
+# Dashboard / Alert Aggregate Functions (Phase 1追加)
+# ============================================================
+
+def get_students_with_activity_summary(course_id: str) -> List[Dict]:
+    """コース学生の活動サマリーを取得（教員アラート・ダッシュボード用）
+    
+    enrollments + users + practice_logs + submissions をJOINし、
+    各学生の最終ログイン、提出率、平均スコア、最近の学習時間を計算する。
+    """
+    supabase = get_supabase_client()
+    
+    # 1. コースの学生一覧を取得
+    enrollments = supabase.table('enrollments')\
+        .select('student_id, users(id, name, email, student_id, last_login)')\
+        .eq('course_id', course_id)\
+        .execute()
+    
+    if not enrollments.data:
+        return []
+    
+    # 2. コースの課題数を取得
+    assignments = supabase.table('assignments')\
+        .select('id')\
+        .eq('course_id', course_id)\
+        .execute()
+    total_assignments = len(assignments.data) if assignments.data else 0
+    
+    # 3. 各学生の情報を集計
+    students_summary = []
+    now = datetime.utcnow()
+    week_ago = (now - timedelta(days=7)).isoformat()
+    
+    for enrollment in enrollments.data:
+        user = enrollment.get('users')
+        if not user:
+            continue
+        
+        student_id = user['id']
+        
+        # 提出数を取得
+        subs = supabase.table('submissions')\
+            .select('id, score, total_score')\
+            .eq('student_id', student_id)\
+            .eq('course_id', course_id)\
+            .execute()
+        submission_count = len(subs.data) if subs.data else 0
+        
+        # 平均スコア
+        scores = []
+        for s in (subs.data or []):
+            sc = s.get('total_score') or s.get('score')
+            if sc and sc > 0:
+                scores.append(sc)
+        avg_score = sum(scores) / len(scores) if scores else 0
+        
+        # 最近の練習ログ
+        logs = supabase.table('practice_logs')\
+            .select('practiced_at, duration_seconds, score')\
+            .eq('student_id', student_id)\
+            .gte('practiced_at', week_ago)\
+            .execute()
+        
+        practice_count = len(logs.data) if logs.data else 0
+        weekly_seconds = sum(
+            (l.get('duration_seconds') or 0) for l in (logs.data or [])
+        )
+        
+        # スコアトレンド（直近と過去を比較 — 簡易版）
+        recent_scores = [l.get('score') for l in (logs.data or []) if l.get('score')]
+        score_trend = 0  # TODO: 過去月と比較して算出
+        
+        # 最終ログイン日
+        last_login_str = user.get('last_login')
+        if last_login_str:
+            try:
+                last_login = datetime.fromisoformat(last_login_str.replace('Z', '+00:00'))
+                days_inactive = (now - last_login.replace(tzinfo=None)).days
+            except (ValueError, TypeError):
+                days_inactive = 99
+        else:
+            days_inactive = 99
+        
+        students_summary.append({
+            'name': user.get('name', '名前未設定'),
+            'student_id': user.get('student_id', ''),
+            'user_id': student_id,
+            'email': user.get('email', ''),
+            'last_login': last_login_str or '',
+            'days_since_active': days_inactive,
+            'submissions': submission_count,
+            'total_assignments': total_assignments,
+            'avg_score': round(avg_score, 1),
+            'score_trend': score_trend,
+            'practice_count': practice_count,
+            'weekly_study_minutes': round(weekly_seconds / 60),
+            'streak': 0,  # TODO: 連続学習日数の算出
+        })
+    
+    return students_summary
+
+
+def get_student_assignment_status(student_id: str, course_id: str) -> List[Dict]:
+    """学生の課題+提出状況を取得（学生ホーム用）
+    
+    assignments LEFT JOIN submissions で未提出/提出済/採点済を判定
+    """
+    supabase = get_supabase_client()
+    
+    # コースの課題一覧
+    assignments = supabase.table('assignments')\
+        .select('*')\
+        .eq('course_id', course_id)\
+        .order('due_date')\
+        .execute()
+    
+    if not assignments.data:
+        return []
+    
+    # 学生の提出物
+    submissions = supabase.table('submissions')\
+        .select('*')\
+        .eq('student_id', student_id)\
+        .eq('course_id', course_id)\
+        .execute()
+    
+    sub_map = {}
+    for s in (submissions.data or []):
+        aid = s.get('assignment_id')
+        if aid:
+            sub_map[aid] = s
+    
+    result = []
+    for a in assignments.data:
+        sub = sub_map.get(a['id'])
+        if sub:
+            score = sub.get('total_score') or sub.get('score') or 0
+            has_feedback = bool(sub.get('feedback') or sub.get('teacher_comment'))
+            status = '採点済' if has_feedback else '提出済'
+        else:
+            score = 0
+            status = '未提出'
+        
+        result.append({
+            'assignment_id': a['id'],
+            'title': a.get('title', ''),
+            'type': a.get('assignment_type', ''),
+            'due_date': a.get('due_date', ''),
+            'status': status,
+            'score': score,
+            'submission': sub,
+        })
+    
+    return result
+
+
+def get_student_recent_activity(student_id: str, limit: int = 10) -> List[Dict]:
+    """学生の最近の学習アクティビティを取得（学生ホーム用）
+    
+    practice_logs + submissions から最新のものを取得
+    """
+    supabase = get_supabase_client()
+    
+    # 練習ログ
+    logs = supabase.table('practice_logs')\
+        .select('*')\
+        .eq('student_id', student_id)\
+        .order('practiced_at', desc=True)\
+        .limit(limit)\
+        .execute()
+    
+    # 提出物
+    subs = supabase.table('submissions')\
+        .select('*, assignments(title)')\
+        .eq('student_id', student_id)\
+        .order('submitted_at', desc=True)\
+        .limit(limit)\
+        .execute()
+    
+    activities = []
+    
+    for log in (logs.data or []):
+        activities.append({
+            'type': 'practice',
+            'module': log.get('module_type', ''),
+            'score': log.get('score'),
+            'duration_seconds': log.get('duration_seconds'),
+            'timestamp': log.get('practiced_at', ''),
+            'description': f"{log.get('module_type', '')} 練習",
+        })
+    
+    for sub in (subs.data or []):
+        assignment = sub.get('assignments') or {}
+        activities.append({
+            'type': 'submission',
+            'module': sub.get('content_type', ''),
+            'score': sub.get('total_score') or sub.get('score'),
+            'timestamp': sub.get('submitted_at', ''),
+            'description': f"{assignment.get('title', '課題')} 提出",
+        })
+    
+    # タイムスタンプでソート
+    activities.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    
+    return activities[:limit]
+
+
+def get_course_chat_session_summary(course_id: str) -> Dict:
+    """コースのAI対話セッションのサマリー統計を取得（教員チャットログ用）"""
+    supabase = get_supabase_client()
+    
+    sessions = supabase.table('chat_sessions')\
+        .select('*, users(id, name, email, student_id)')\
+        .eq('course_id', course_id)\
+        .order('started_at', desc=True)\
+        .execute()
+    
+    if not sessions.data:
+        return {
+            'total_sessions': 0,
+            'active_students': 0,
+            'avg_score': 0,
+            'students': [],
+        }
+    
+    # 学生ごとに集計
+    student_map = {}
+    total_scores = []
+    
+    for s in sessions.data:
+        user = s.get('users') or {}
+        uid = user.get('id', '')
+        
+        if uid not in student_map:
+            student_map[uid] = {
+                'name': user.get('name', '不明'),
+                'student_id_display': user.get('student_id', ''),
+                'user_id': uid,
+                'sessions': [],
+                'scores': [],
+            }
+        
+        student_map[uid]['sessions'].append(s)
+        score = s.get('score') or s.get('total_score')
+        if score:
+            student_map[uid]['scores'].append(score)
+            total_scores.append(score)
+    
+    # 学生サマリーを構築
+    student_summaries = []
+    for uid, data in student_map.items():
+        avg = sum(data['scores']) / len(data['scores']) if data['scores'] else 0
+        
+        # 最終セッション
+        last_session = data['sessions'][0] if data['sessions'] else {}
+        last_active = last_session.get('started_at', '')
+        
+        # トレンド（簡易: 直近5回の平均 vs 全体平均）
+        recent = data['scores'][:5]
+        recent_avg = sum(recent) / len(recent) if recent else 0
+        trend = '↑' if recent_avg > avg + 2 else ('↓' if recent_avg < avg - 2 else '→')
+        
+        student_summaries.append({
+            'name': data['name'],
+            'id': data['student_id_display'],
+            'user_id': uid,
+            'sessions': len(data['sessions']),
+            'avg_score': round(avg, 1),
+            'last_active': last_active,
+            'trend': trend,
+            'recent_sessions': data['sessions'][:5],
+        })
+    
+    # セッション数でソート
+    student_summaries.sort(key=lambda x: x['sessions'], reverse=True)
+    
+    return {
+        'total_sessions': len(sessions.data),
+        'active_students': len(student_map),
+        'avg_score': round(sum(total_scores) / len(total_scores), 1) if total_scores else 0,
+        'students': student_summaries,
+    }

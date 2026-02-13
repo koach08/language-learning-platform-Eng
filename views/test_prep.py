@@ -260,7 +260,7 @@ def show():
             "target_score": None,
             "test_date": None,
             "practice_history": [],
-            "mock_test_results": generate_demo_mock_results(),
+            "mock_test_results": [],
         }
     
     user_data = st.session_state.test_prep_data[user_key]
@@ -347,46 +347,47 @@ def show_class_exam_status():
     
     st.markdown("---")
     
-    # 受験予定者一覧（デモ）
-    st.markdown("**TOEFL ITP 受験予定（2025/06/15）**")
+    # 受験予定者一覧（DB連携）
+    st.markdown("**TOEFL ITP 受験予定**")
     
-    students = [
-        {"name": "田中太郎", "target": 500, "current_est": 480, "practice": 45, "trend": "+15"},
-        {"name": "鈴木花子", "target": 550, "current_est": 535, "practice": 62, "trend": "+22"},
-        {"name": "佐藤一郎", "target": 480, "current_est": 455, "practice": 18, "trend": "+8"},
-        {"name": "山田美咲", "target": 520, "current_est": 510, "practice": 55, "trend": "+18"},
-    ]
+    course_id = classes.get(selected_class, {}).get('course_id')
+    students = []
     
-    cols = st.columns([2, 1, 1, 1, 1])
+    if course_id:
+        try:
+            from utils.database import get_course_students
+            enrolled = get_course_students(course_id)
+            # TODO: test_prep用のデータ（目標スコア、予測スコア等）を
+            #       専用テーブルまたはstudent_profilesから取得する
+            # 現在は登録学生の名前だけ表示
+            students = [{'name': s.get('name', ''), 'student_id': s.get('student_id', '')} for s in enrolled]
+        except Exception:
+            pass
+    
+    if not students:
+        st.info("受験予定者を登録してください。学生がクラスに登録すると一覧に表示されます。")
+        return
+    
+    cols = st.columns([2, 1, 1, 1])
     with cols[0]:
         st.markdown("**学生**")
     with cols[1]:
         st.markdown("**目標**")
     with cols[2]:
-        st.markdown("**予測**")
-    with cols[3]:
         st.markdown("**練習数**")
-    with cols[4]:
-        st.markdown("**伸び**")
+    with cols[3]:
+        st.markdown("**ステータス**")
     
     for s in students:
-        cols = st.columns([2, 1, 1, 1, 1])
+        cols = st.columns([2, 1, 1, 1])
         with cols[0]:
-            diff = s['target'] - s['current_est']
-            if diff <= 0:
-                st.markdown(f"✅ {s['name']}")
-            elif diff <= 20:
-                st.markdown(f"🟡 {s['name']}")
-            else:
-                st.markdown(f"🔴 {s['name']}")
+            st.markdown(f"📝 {s['name']}")
         with cols[1]:
-            st.caption(str(s['target']))
+            st.caption("未設定")
         with cols[2]:
-            st.caption(str(s['current_est']))
+            st.caption("-")
         with cols[3]:
-            st.caption(f"{s['practice']}回")
-        with cols[4]:
-            st.caption(s['trend'])
+            st.caption("登録済")
 
 
 def show_teacher_ai_generation():
@@ -1336,21 +1337,3 @@ def show_study_plan_tab(test_info, user_data):
             if st.button(f"練習開始", key=f"plan_{section['key']}"):
                 st.session_state['current_view'] = 'test_prep'
                 st.rerun()
-
-
-def generate_demo_mock_results():
-    """デモ用模擬テスト結果"""
-    return [
-        {
-            "date": "2025-02-01",
-            "total_score": 520,
-            "section_scores": {"listening": 52, "structure": 50, "reading": 48},
-            "time_taken": 115
-        },
-        {
-            "date": "2025-01-15",
-            "total_score": 490,
-            "section_scores": {"listening": 48, "structure": 47, "reading": 45},
-            "time_taken": 120
-        },
-    ]

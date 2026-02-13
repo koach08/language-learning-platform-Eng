@@ -349,23 +349,43 @@ def show_assignments_summary():
     st.markdown("---")
     st.markdown("### 📝 課題")
     
-    # TODO: Supabaseから実課題を取得
-    # 現在はサンプル表示
-    assignments = [
-        {"name": "Self-Introduction Speech", "due": "2/14", "status": "提出済", "score": 75},
-        {"name": "Reading Comprehension", "due": "2/21", "status": "未提出", "score": None},
-        {"name": "Vocabulary Quiz Week 5", "due": "2/28", "status": "未提出", "score": None},
-    ]
+    user = get_current_user()
+    student_id = user.get('id')
     
-    st.caption("📌 サンプル表示（実課題が登録されると自動で切り替わります）")
+    # コースIDを取得
+    course_id = None
+    registered = st.session_state.get('student_registered_classes', [])
+    if registered:
+        course_id = registered[0].get('class_key')
+    
+    if not student_id or not course_id:
+        st.info("まだ課題はありません")
+        return
+    
+    try:
+        from utils.database import get_student_assignment_status
+        assignments = get_student_assignment_status(student_id, course_id)
+    except Exception as e:
+        st.warning(f"課題データの取得に失敗しました: {e}")
+        return
+    
+    if not assignments:
+        st.info("まだ課題はありません。教員が課題を作成するとここに表示されます。")
+        return
     
     for a in assignments:
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.markdown(f"**{a['name']}** (締切: {a['due']})")
+            due = a.get('due_date', '')
+            due_display = due[:10] if due else ''
+            st.markdown(f"**{a['title']}** {f'(締切: {due_display})' if due_display else ''}")
         with col2:
-            if a['status'] == "提出済":
-                st.success(f"✅ {a['score']}点")
+            status = a.get('status', '未提出')
+            score = a.get('score', 0)
+            if status == '採点済':
+                st.success(f"✅ {score}点")
+            elif status == '提出済':
+                st.info("📤 提出済")
             else:
                 st.warning("⏳ 未提出")
 
@@ -374,25 +394,44 @@ def show_recent_activity():
     st.markdown("---")
     st.markdown("### 📈 最近の学習")
     
-    # TODO: practice_logsから実データを取得
-    # 現在はサンプル表示
-    history = [
-        {"date": "2/4", "module": "Speaking", "activity": "音読練習", "score": 78},
-        {"date": "2/3", "module": "Vocabulary", "activity": "フラッシュカード", "score": 85},
-        {"date": "2/2", "module": "Writing", "activity": "エッセイ添削", "score": 72},
-        {"date": "2/1", "module": "Listening", "activity": "YouTube学習", "score": 80},
-    ]
+    user = get_current_user()
+    student_id = user.get('id')
     
-    st.caption("📌 サンプル表示（学習を始めると実績データに切り替わります）")
+    if not student_id:
+        st.info("まだ学習履歴はありません")
+        return
     
-    for h in history:
-        col1, col2, col3 = st.columns([1, 3, 1])
-        with col1:
-            st.caption(h['date'])
-        with col2:
-            st.markdown(f"**{h['module']}** - {h['activity']}")
-        with col3:
-            st.markdown(f"**{h['score']}点**")
+    try:
+        from utils.database import get_student_recent_activity
+        activities = get_student_recent_activity(student_id, limit=5)
+    except Exception as e:
+        st.warning(f"学習履歴の取得に失敗しました: {e}")
+        activities = []
+    
+    if not activities:
+        st.info("まだ学習履歴はありません。学習を始めると実績がここに表示されます。")
+    else:
+        for h in activities:
+            timestamp = h.get('timestamp', '')
+            try:
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                date_display = dt.strftime('%m/%d')
+            except (ValueError, TypeError):
+                date_display = timestamp[:10] if timestamp else ''
+            
+            col1, col2, col3 = st.columns([1, 3, 1])
+            with col1:
+                st.caption(date_display)
+            with col2:
+                module = h.get('module', '')
+                desc = h.get('description', '')
+                st.markdown(f"**{module}** - {desc}" if desc else f"**{module}**")
+            with col3:
+                score = h.get('score')
+                if score:
+                    st.markdown(f"**{score}点**")
+                else:
+                    st.markdown("-")
     
     st.markdown("---")
     
