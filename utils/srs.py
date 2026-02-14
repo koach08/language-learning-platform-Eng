@@ -237,8 +237,9 @@ def show_quiz_review(words):
         distractors = random.sample(other_words, 3)
         options = [current['definition']] + [d['definition'] for d in distractors]
     else:
-        dummy = ["動く、移動する", "考える、思考する", "作る、創造する"]
-        options = [current['definition']] + dummy[:3]
+        # 単語帳に選択肢が足りない場合のフォールバック
+        fallback_options = ["動く、移動する", "考える、思考する", "作る、創造する"]
+        options = [current['definition']] + fallback_options[:3]
     
     random.shuffle(options)
     
