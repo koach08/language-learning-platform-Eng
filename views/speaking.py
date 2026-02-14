@@ -251,7 +251,73 @@ def show_preset_materials(level, user):
     )
     
     if selected:
-        show_practice_interface(selected, user)
+        # プレースホルダー検出 → 穴埋めフォーム表示
+        import re
+        placeholders = re.findall(r'\[([^\]]+)\]', selected['text'])
+        
+        if placeholders:
+            st.markdown("---")
+            st.markdown("#### ✏️ テンプレートをカスタマイズ")
+            st.caption("以下の空欄に自分の情報を入力してください。入力後、完成したテキストで練習できます。")
+            
+            # セッションキーでユーザー入力を保持
+            fill_key = f"template_fill_{selected['id']}"
+            if fill_key not in st.session_state:
+                st.session_state[fill_key] = {}
+            
+            # プレースホルダーごとに入力欄
+            # ラベル→ヒントのマッピング
+            hints = {
+                "Your Name": "例: Taro Tanaka",
+                "Your Major": "例: Economics, Engineering",
+                "Your Faculty": "例: Letters, Science",
+                "Your Hometown": "例: Sapporo, Osaka",
+                "Your Prefecture": "例: Hokkaido, Tokyo",
+                "Your Hobbies": "例: play soccer, read manga, watch movies",
+            }
+            
+            unique_placeholders = list(dict.fromkeys(placeholders))  # 重複除去
+            all_filled = True
+            
+            cols = st.columns(min(len(unique_placeholders), 2))
+            for i, ph in enumerate(unique_placeholders):
+                with cols[i % 2]:
+                    hint = hints.get(ph, f"例: ...")
+                    val = st.text_input(
+                        f"📝 {ph}",
+                        value=st.session_state[fill_key].get(ph, ""),
+                        placeholder=hint,
+                        key=f"fill_{selected['id']}_{ph}"
+                    )
+                    st.session_state[fill_key][ph] = val
+                    if not val.strip():
+                        all_filled = False
+            
+            if all_filled:
+                # テキストを完成
+                completed_text = selected['text']
+                for ph in unique_placeholders:
+                    completed_text = completed_text.replace(f"[{ph}]", st.session_state[fill_key][ph])
+                
+                st.markdown("#### ✅ 完成テキスト")
+                st.text_area("", completed_text, height=180, disabled=True, key="completed_preview")
+                
+                # 完成テキストで教材を作成
+                completed_material = {
+                    **selected,
+                    "text": completed_text,
+                    "title": f"{selected['title']}（カスタマイズ済み）"
+                }
+                show_practice_interface(completed_material, user)
+            else:
+                st.warning("⬆️ すべての項目を入力すると練習を開始できます")
+                
+                # テンプレートをプレビュー表示
+                with st.expander("📖 テンプレート全文を確認"):
+                    st.text_area("", selected['text'], height=180, disabled=True, key="template_preview")
+        else:
+            # プレースホルダーなし → そのまま練習
+            show_practice_interface(selected, user)
 
 
 def show_custom_text_input(user):
@@ -649,22 +715,35 @@ def show_practice_interface(material, user):
     if audio_bytes:
         if st.button("📊 評価する", type="primary", key=f"eval_{material['id']}"):
             with loading_with_tips("音声を評価しています... / Evaluating your pronunciation...", context="evaluation"):
-                import time
-                time.sleep(0.5)
-                
-                score = random.randint(65, 95)
-                pronunciation = random.randint(60, 95)
-                fluency = random.randint(60, 95)
+                try:
+                    from utils.speech_eval import evaluate_pronunciation, get_feedback
+                    result = evaluate_pronunciation(audio_bytes, material['text'])
+                    
+                    if result.get("success"):
+                        scores = result.get("scores", {})
+                        score = scores.get("overall", 0)
+                        pronunciation = scores.get("accuracy", 0)
+                        fluency = scores.get("fluency", 0)
+                        completeness = scores.get("completeness", 0)
+                        prosody = scores.get("prosody", 0)
+                    else:
+                        st.error(f"評価エラー: {result.get('error', '不明なエラー')}")
+                        return
+                except Exception as e:
+                    st.error(f"音声評価サービスに接続できませんでした: {e}")
+                    return
                 
                 st.success("評価完了！")
                 
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("総合スコア", f"{score}点")
+                    st.metric("総合スコア", f"{score:.0f}点")
                 with col2:
-                    st.metric("発音", f"{pronunciation}点")
+                    st.metric("発音", f"{pronunciation:.0f}点")
                 with col3:
-                    st.metric("流暢さ", f"{fluency}点")
+                    st.metric("流暢さ", f"{fluency:.0f}点")
+                with col4:
+                    st.metric("完全性", f"{completeness:.0f}点")
                 
                 # フィードバック
                 if score >= 85:
