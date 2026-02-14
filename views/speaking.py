@@ -679,7 +679,7 @@ def show_practice_interface(material, user):
     # TTS（モデル音声）
     st.markdown("#### 🔊 モデル音声 / Model Audio")
     from utils.tts_natural import show_tts_player
-    show_tts_player(practice_text, key_prefix=f"model_{material['id']}")
+    show_tts_player(material['text'], key_prefix=f"model_{material['id']}")
     
     st.markdown("---")
     
