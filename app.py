@@ -41,8 +41,6 @@ assignments = safe_import("assignments")
 grades = safe_import("grades")
 learning_log = safe_import("learning_log")
 test_prep = safe_import("test_prep")
-learning_resources = safe_import("learning_resources")
-student_profile = safe_import("student_profile")
 
 def get_student_enabled_modules(user):
     class_key = user.get("class_key")
@@ -112,14 +110,14 @@ if user:
             if st.button("✏️ Writing", use_container_width=True):
                 st.session_state["current_view"] = "writing"
                 st.rerun()
+            if st.button("📚 Vocabulary", use_container_width=True):
+                st.session_state["current_view"] = "vocabulary"
+                st.rerun()
             if st.button("📖 Reading", use_container_width=True):
                 st.session_state["current_view"] = "reading"
                 st.rerun()
             if st.button("🎧 Listening", use_container_width=True):
                 st.session_state["current_view"] = "listening"
-                st.rerun()
-            if st.button("📚 Vocabulary", use_container_width=True):
-                st.session_state["current_view"] = "vocabulary"
                 st.rerun()
             if st.button("📝 検定対策", use_container_width=True):
                 st.session_state["current_view"] = "test_prep"
@@ -155,6 +153,10 @@ if user:
                 if st.button("✏️ Writing", use_container_width=True):
                     st.session_state["current_view"] = "writing"
                     st.rerun()
+            if "vocabulary" in enabled:
+                if st.button("📚 Vocabulary", use_container_width=True):
+                    st.session_state["current_view"] = "vocabulary"
+                    st.rerun()
             if "reading" in enabled:
                 if st.button("📖 Reading", use_container_width=True):
                     st.session_state["current_view"] = "reading"
@@ -163,6 +165,10 @@ if user:
                 if st.button("🎧 Listening", use_container_width=True):
                     st.session_state["current_view"] = "listening"
                     st.rerun()
+            if "test_prep" in enabled:
+                if st.button("📝 検定対策", use_container_width=True):
+                    st.session_state["current_view"] = "test_prep"
+                    st.rerun()
             st.markdown("---")
             st.markdown("#### 📝 辞書")
             try:
@@ -170,20 +176,6 @@ if user:
                 show_dictionary_popup(word_key="sidebar_dict")
             except Exception:
                 st.info("辞書機能を読み込み中...")
-            if "vocabulary" in enabled:
-                if st.button("📚 Vocabulary", use_container_width=True):
-                    st.session_state["current_view"] = "vocabulary"
-                    st.rerun()
-            if "test_prep" in enabled:
-                if st.button("📝 検定対策", use_container_width=True):
-                    st.session_state["current_view"] = "test_prep"
-                    st.rerun()
-            # --- 学習補助ページ ---
-            st.markdown("---")
-            st.markdown("#### 🚀 学習補助")
-            if st.button("🤖 AIプロンプト集・学習リソース", use_container_width=True):
-                st.session_state["current_view"] = "learning_resources"
-                st.rerun()
         st.markdown("---")
         if st.button("📘 使い方ガイド / Help", use_container_width=True):
             st.session_state["current_view"] = "help"
@@ -219,9 +211,6 @@ def main():
     if view == "help":
         show_help_view()
         return
-    if view == "learning_resources":
-        show_learning_resources_view()
-        return
     views = {
         "teacher_home": teacher_home.show,
         "student_home": student_home.show,
@@ -240,7 +229,6 @@ def main():
         "grades": grades.show if grades else teacher_home.show,
         "learning_log": learning_log.show if learning_log else student_home.show,
         "test_prep": test_prep.show if test_prep else student_home.show,
-        "student_profile": student_profile.show if student_profile else student_home.show,
     }
     views.get(view, student_home.show if user["role"] == "student" else teacher_home.show)()
 
@@ -326,13 +314,6 @@ def show_analytics_view():
             show_analytics_dashboard()
         except Exception as e:
             st.error(f"読み込みエラー: {e}")
-
-def show_learning_resources_view():
-    """学習補助ページ表示"""
-    if learning_resources:
-        learning_resources.show()
-    else:
-        st.error("学習補助ページの読み込みに失敗しました")
 
 if __name__ == "__main__":
     main()
