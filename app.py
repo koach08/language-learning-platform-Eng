@@ -150,30 +150,28 @@ if user:
             st.markdown("#### 📚 モジュール")
             enabled = get_student_enabled_modules(user)
             if "speaking" in enabled:
-                if st.button("🗣️ Speaking", use_container_width=True):
+                if st.button("🗣️ Speaking", use_container_width=True, key="speaking_student"):
                     st.session_state["current_view"] = "speaking"
                     st.rerun()
             if "writing" in enabled:
-                if st.button("✏️ Writing", use_container_width=True):
+                if st.button("✏️ Writing", use_container_width=True, key="writing_student"):
                     st.session_state["current_view"] = "writing"
                     st.rerun()
             if "reading" in enabled:
-                if st.button("📖 Reading", use_container_width=True):
+                if st.button("📖 Reading", use_container_width=True, key="reading_student"):
                     st.session_state["current_view"] = "reading"
                     st.rerun()
             if "listening" in enabled:
-                if st.button("🎧 Listening", use_container_width=True):
+                if st.button("🎧 Listening", use_container_width=True, key="listening_student"):
                     st.session_state["current_view"] = "listening"
                     st.rerun()
             if "test_prep" in enabled:
-                if st.button("📝 検定対策", use_container_width=True):
+                if st.button("📝 検定対策", use_container_width=True, key="test_prep_student"):
                     st.session_state["current_view"] = "test_prep"
                     st.rerun()
-            if st.button("📚 Vocabulary", use_container_width=True):
-                st.session_state["current_view"] = "vocabulary"
                 st.rerun()
             if "vocabulary" in enabled:
-                if st.button("📚 Vocabulary", use_container_width=True):
+                if st.button("📚 Vocabulary", use_container_width=True, key="vocab_student"):
                     st.session_state["current_view"] = "vocabulary"
                     st.rerun()
             st.markdown("---")
