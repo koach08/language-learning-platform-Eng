@@ -679,18 +679,8 @@ def show_practice_interface(material, user):
     
     # TTS（モデル音声）
     st.markdown("#### 🔊 モデル音声 / Model Audio")
-    try:
-        from utils.tts_natural import show_tts_player
-        show_tts_player(material['text'], key_prefix=f"model_{material['id']}")
-    except Exception:
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            speed = st.select_slider("速度", options=[0.5, 0.75, 1.0, 1.25, 1.5], value=1.0, format_func=lambda x: f"{x}x")
-        with col2:
-            voice_type = st.selectbox("音声", ["アメリカ英語 (女性)", "アメリカ英語 (男性)", "イギリス英語 (女性)", "イギリス英語 (男性)"])
-        with col3:
-            if st.button("🔊 再生", use_container_width=True):
-                play_tts(material['text'], speed, voice_type)
+    from utils.tts_natural import show_tts_player
+    show_tts_player(practice_text, key_prefix=f"model_{material['id']}")
     
     st.markdown("---")
     
@@ -767,37 +757,6 @@ def show_practice_interface(material, user):
                 
                 # 練習履歴に保存
                 save_practice_history(user, material, score, pronunciation, fluency)
-
-
-def play_tts(text, speed=1.0, voice_type="アメリカ英語 (女性)"):
-    """自然な音声で再生"""
-    try:
-        from utils.tts_natural import play_natural_tts
-        play_natural_tts(text, voice_type, speed)
-    except Exception:
-        # フォールバック: Web Speech API
-        voice_settings = {
-            "アメリカ英語 (女性)": "en-US",
-            "アメリカ英語 (男性)": "en-US",
-            "イギリス英語 (女性)": "en-GB",
-            "イギリス英語 (男性)": "en-GB",
-        }
-        lang = voice_settings.get(voice_type, "en-US")
-        escaped_text = text.replace("'", "\\'").replace("\n", " ").replace('"', '\\"')
-        js_code = f"""
-        <script>
-        (function() {{
-            window.speechSynthesis.cancel();
-            setTimeout(function() {{
-                const u = new SpeechSynthesisUtterance("{escaped_text}");
-                u.lang = "{lang}";
-                u.rate = {speed};
-                window.speechSynthesis.speak(u);
-            }}, 100);
-        }})();
-        </script>
-        """
-        st.components.v1.html(js_code, height=0)
 
 
 def save_practice_history(user, material, score, pronunciation, fluency):
@@ -1069,8 +1028,8 @@ def show_assignment_submission(user):
             st.markdown("#### 📖 読み上げるテキスト")
             st.text_area("", target_text, height=100, disabled=True)
             
-            if st.button("🔊 お手本を聞く"):
-                play_tts(target_text, 0.9)
+            from utils.tts_natural import show_tts_player
+            show_tts_player(target_text, key_prefix=f"assign_tts_{selected['id']}")
         
         elif "学生が自分でテキスト作成" in type_label:
             st.markdown("#### ✏️ テキストを入力")

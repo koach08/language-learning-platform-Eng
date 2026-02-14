@@ -9,31 +9,7 @@ from utils.reading import (
     get_wpm_feedback
 )
 import time
-
-
-def play_tts_reading(text, speed=1.0):
-    """自然な音声で読み上げ（Edge TTS優先、フォールバックでWeb Speech API）"""
-    try:
-        from utils.tts_natural import play_natural_tts
-        play_natural_tts(text, "アメリカ英語 (女性)", speed)
-    except Exception:
-        # フォールバック: Web Speech API（ブラウザ内蔵）
-        escaped_text = text.replace("'", "\\'").replace("\n", " ").replace('"', '\\"')
-        js_code = f"""
-        <script>
-        (function() {{
-            window.speechSynthesis.cancel();
-            setTimeout(function() {{
-                const utterance = new SpeechSynthesisUtterance("{escaped_text}");
-                utterance.lang = "en-US";
-                utterance.rate = {speed};
-                window.speechSynthesis.speak(utterance);
-            }}, 100);
-        }})();
-        </script>
-        """
-        st.components.v1.html(js_code, height=0)
-        st.caption("⚠️ 自然音声が利用できないため、ブラウザ内蔵音声で再生中")
+from utils.tts_natural import show_tts_player, stop_audio
 
 
 @require_auth
@@ -118,16 +94,7 @@ def show_ai_article_generator():
         st.markdown(article.get('text', ''))
         
         # 読み上げ機能
-        try:
-            from utils.tts_natural import show_tts_player
-            show_tts_player(article.get('text', ''), key_prefix="tts_generated")
-        except Exception:
-            col_tts1, col_tts2 = st.columns([1, 3])
-            with col_tts1:
-                tts_speed = st.select_slider("速度", [0.5, 0.75, 1.0, 1.25], value=1.0, key="tts_generated")
-            with col_tts2:
-                if st.button("🔊 読み上げ / Read Aloud", key="tts_btn_generated"):
-                    play_tts_reading(article.get('text', ''), tts_speed)
+        show_tts_player(article.get('text', ''), key_prefix="tts_generated")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -181,8 +148,7 @@ def show_article_management():
             st.markdown(article['text'][:200] + "...")
             
             # 読み上げ機能
-            if st.button(f"🔊 読み上げ", key=f"tts_mgmt_{key}"):
-                play_tts_reading(article['text'], 1.0)
+            show_tts_player(article['text'], key_prefix=f"tts_mgmt_{key}")
 
 
 def show_class_reading_progress():
@@ -275,20 +241,7 @@ def show_reading_practice():
             
             # 読み上げ機能
             st.markdown("---")
-            col_tts1, col_tts2, col_tts3 = st.columns([1, 2, 1])
-            with col_tts1:
-                tts_speed = st.select_slider(
-                    "速度 / Speed",
-                    options=[0.5, 0.75, 1.0, 1.25],
-                    value=1.0,
-                    key=f"tts_speed_{selected}"
-                )
-            with col_tts2:
-                if st.button("🔊 記事を読み上げ / Read Aloud", key=f"tts_{selected}", use_container_width=True):
-                    play_tts_reading(article['text'], tts_speed)
-            with col_tts3:
-                if st.button("⏹️ 停止 / Stop", key=f"tts_stop_{selected}", use_container_width=True):
-                    st.components.v1.html("<script>window.speechSynthesis.cancel();</script>", height=0)
+            show_tts_player(article['text'], key_prefix=f"tts_{selected}")
             
             st.markdown("---")
             
@@ -494,16 +447,7 @@ def show_student_ai_generator():
         st.markdown(article.get('text', ''))
         
         # 読み上げ機能
-        try:
-            from utils.tts_natural import show_tts_player
-            show_tts_player(article.get('text', ''), key_prefix="tts_student_gen")
-        except Exception:
-            col_tts1, col_tts2 = st.columns([1, 3])
-            with col_tts1:
-                tts_speed = st.select_slider("速度", [0.5, 0.75, 1.0, 1.25], value=1.0, key="tts_student_gen")
-            with col_tts2:
-                if st.button("🔊 読み上げ / Read Aloud", key="tts_btn_student_gen"):
-                    play_tts_reading(article.get('text', ''), tts_speed)
+        show_tts_player(article.get('text', ''), key_prefix="tts_student_gen")
         
         if st.button("📝 この記事でクイズ / Quiz on this article"):
             with st.spinner("問題を生成中..."):
