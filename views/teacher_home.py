@@ -251,7 +251,7 @@ def show_alert_summary_bar():
         classes = st.session_state.get('teacher_classes', {})
         course_id = None
         if selected_class and selected_class in classes:
-            course_id = classes[selected_class].get('course_id')
+            course_id = classes[selected_class].get('db_id') or classes[selected_class].get('course_id')
         
         if not course_id:
             return

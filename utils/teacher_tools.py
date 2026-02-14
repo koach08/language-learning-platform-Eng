@@ -80,7 +80,7 @@ def get_student_alerts(course_id: str = None):
         selected_class = st.session_state.get('selected_class')
         classes = st.session_state.get('teacher_classes', {})
         if selected_class and selected_class in classes:
-            course_id = classes[selected_class].get('course_id') or classes[selected_class].get('db_id')
+            course_id = classes[selected_class].get('db_id') or classes[selected_class].get('course_id')
     
     if not course_id:
         return alerts
@@ -355,7 +355,7 @@ def show_grade_tools():
         selected_class = st.session_state.get('selected_class')
         classes = st.session_state.get('teacher_classes', {})
         if selected_class and selected_class in classes:
-            course_id = classes[selected_class].get('course_id') or classes[selected_class].get('db_id')
+            course_id = classes[selected_class].get('db_id') or classes[selected_class].get('course_id')
         
         if course_id:
             try:

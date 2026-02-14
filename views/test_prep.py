@@ -350,7 +350,7 @@ def show_class_exam_status():
     # 受験予定者一覧（DB連携）
     st.markdown("**TOEFL ITP 受験予定**")
     
-    course_id = classes.get(selected_class, {}).get('course_id')
+    course_id = classes.get(selected_class, {}).get('db_id') or classes.get(selected_class, {}).get('course_id')
     students = []
     
     if course_id:

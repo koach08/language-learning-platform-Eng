@@ -28,7 +28,7 @@ def show():
         selected_class = list(classes.keys())[0]
     
     current_class = classes[selected_class]
-    course_id = current_class.get('course_id')
+    course_id = current_class.get('db_id') or current_class.get('course_id')
     
     # DBから学生データを取得
     class_students = _load_class_students(course_id)

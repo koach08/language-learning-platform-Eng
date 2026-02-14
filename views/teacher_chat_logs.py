@@ -20,7 +20,7 @@ def show():
     classes = st.session_state.get('teacher_classes', {})
     course_id = None
     if selected_class and selected_class in classes:
-        course_id = classes[selected_class].get('course_id')
+        course_id = classes[selected_class].get('db_id') or classes[selected_class].get('course_id')
     
     if not course_id:
         st.warning("クラスが選択されていません")

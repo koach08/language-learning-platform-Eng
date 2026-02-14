@@ -22,7 +22,7 @@ def show():
     
     if selected_class in classes:
         current_class = classes[selected_class]
-        course_id = current_class.get('course_id')
+        course_id = current_class.get('db_id') or current_class.get('course_id')
         st.info(f"📚 **{current_class['name']}** の成績集計")
     
     # タブ
