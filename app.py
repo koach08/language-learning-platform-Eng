@@ -142,6 +142,9 @@ if user:
             if st.button("📋 マイポートフォリオ", use_container_width=True):
                 st.session_state["current_view"] = "student_portfolio"
                 st.rerun()
+            if st.button("👤 プロフィール編集", use_container_width=True):
+                st.session_state["current_view"] = "student_profile"
+                st.rerun()
             st.markdown("---")
             st.markdown("#### 📚 モジュール")
             enabled = get_student_enabled_modules(user)
