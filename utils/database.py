@@ -1324,6 +1324,7 @@ def get_students_with_activity_summary(course_id: str) -> List[Dict]:
     students_summary = []
     now = datetime.utcnow()
     week_ago = (now - timedelta(days=7)).isoformat()
+    assignment_ids = [a["id"] for a in (assignments.data or [])]
     
     for enrollment in enrollments.data:
         user = enrollment.get('users')
@@ -1332,17 +1333,20 @@ def get_students_with_activity_summary(course_id: str) -> List[Dict]:
         
         student_id = user['id']
         
-        # 提出数を取得
-        subs = supabase.table('submissions')\
-            .select('id, total_score')\
-            .eq('student_id', student_id)\
-            .eq('course_id', course_id)\
-            .execute()
-        submission_count = len(subs.data) if subs.data else 0
+        # 提出数を取得（assignmentsのIDリスト経由）
+        subs_data = []
+        for aid in assignment_ids:
+            s = supabase.table('submissions')\
+                .select('id, total_score')\
+                .eq('student_id', student_id)\
+                .eq('assignment_id', aid)\
+                .execute()
+            subs_data.extend(s.data or [])
+        submission_count = len(subs_data)
         
         # 平均スコア
         scores = []
-        for s in (subs.data or []):
+        for s in (subs_data or []):
             sc = s.get('total_score')
             if sc and sc > 0:
                 scores.append(sc)
