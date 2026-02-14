@@ -1415,15 +1415,21 @@ def get_student_assignment_status(student_id: str, course_id: str) -> List[Dict]
     if not assignments.data:
         return []
     
-    # 学生の提出物
-    submissions = supabase.table('submissions')\
-        .select('*')\
-        .eq('student_id', student_id)\
-        .eq('course_id', course_id)\
-        .execute()
+    # 学生の提出物（assignment_id経由でフィルタ）
+    assignment_ids = [a['id'] for a in assignments.data]
+    all_subs = []
+    for aid in assignment_ids:
+        s = supabase.table('submissions')\
+            .select('*')\
+            .eq('student_id', student_id)\
+            .eq('assignment_id', aid)\
+            .execute()
+        all_subs.extend(s.data or [])
+    
+    submissions_data = all_subs
     
     sub_map = {}
-    for s in (submissions.data or []):
+    for s in submissions_data:
         aid = s.get('assignment_id')
         if aid:
             sub_map[aid] = s
