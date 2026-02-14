@@ -297,7 +297,7 @@ def show_alert_dashboard():
     filtered = [a for a in alerts if a['severity'] in filter_severity]
     
     # アラート表示
-    for alert in filtered:
+    for idx, alert in enumerate(filtered):
         severity_colors = {
             'high': 'error',
             'medium': 'warning',
@@ -312,14 +312,14 @@ def show_alert_dashboard():
             # クイックアクション
             col1, col2, col3 = st.columns(3)
             with col1:
-                if st.button("📨 メッセージ送信", key=f"msg_{alert['student_id']}_{alert['type']}"):
+                if st.button("📨 メッセージ送信", key=f"msg_{idx}_{alert['student_id']}_{alert['type']}"):
                     st.session_state['current_view'] = 'messaging'
                     st.rerun()
             with col2:
-                if st.button("✅ 対応済み", key=f"done_{alert['student_id']}_{alert['type']}"):
+                if st.button("✅ 対応済み", key=f"done_{idx}_{alert['student_id']}_{alert['type']}"):
                     st.success("対応済みにしました")
             with col3:
-                if st.button("🔇 非表示", key=f"mute_{alert['student_id']}_{alert['type']}"):
+                if st.button("🔇 非表示", key=f"mute_{idx}_{alert['student_id']}_{alert['type']}"):
                     st.success("非表示にしました")
 
 
