@@ -1334,7 +1334,7 @@ def get_students_with_activity_summary(course_id: str) -> List[Dict]:
         
         # 提出数を取得
         subs = supabase.table('submissions')\
-            .select('id, total_score')\
+            .select('id, score, total_score')\
             .eq('student_id', student_id)\
             .eq('course_id', course_id)\
             .execute()
@@ -1343,7 +1343,7 @@ def get_students_with_activity_summary(course_id: str) -> List[Dict]:
         # 平均スコア
         scores = []
         for s in (subs.data or []):
-            sc = s.get('total_score')
+            sc = s.get('total_score') or s.get('score')
             if sc and sc > 0:
                 scores.append(sc)
         avg_score = sum(scores) / len(scores) if scores else 0

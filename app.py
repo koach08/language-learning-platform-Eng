@@ -125,7 +125,7 @@ if user:
                 st.rerun()
         else:
             st.markdown("#### 🎓 学習")
-            if st.button("🏠 ホーム", use_container_width=True):
+            if st.button("🏠 ホーム", use_container_width=True, key="home_student"):
                 st.session_state["current_view"] = "student_home"
                 st.rerun()
             if st.button("📖 マイ単語帳", use_container_width=True):
@@ -134,7 +134,7 @@ if user:
             if st.button("📊 学習分析", use_container_width=True):
                 st.session_state["current_view"] = "analytics"
                 st.rerun()
-            if st.button("💬 メッセージ", use_container_width=True):
+            if st.button("💬 メッセージ", use_container_width=True, key="msg_student"):
                 st.session_state["current_view"] = "messaging"
                 st.rerun()
             if st.button("📝 授業外学習ログ", use_container_width=True):
@@ -169,7 +169,6 @@ if user:
                 if st.button("📝 検定対策", use_container_width=True, key="test_prep_student"):
                     st.session_state["current_view"] = "test_prep"
                     st.rerun()
-                st.rerun()
             if "vocabulary" in enabled:
                 if st.button("📚 Vocabulary", use_container_width=True, key="vocab_student"):
                     st.session_state["current_view"] = "vocabulary"
