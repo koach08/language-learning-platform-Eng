@@ -1,7 +1,6 @@
 import streamlit as st
 from utils.auth import get_current_user, require_auth
 from datetime import datetime
-import random
 from utils.loading_tips import loading_with_tips, show_quick_tip
 from utils.database import (
     log_speaking_practice,
@@ -883,68 +882,183 @@ def show_speech_practice(user):
     
     if speech_audio:
         if st.button("🎯 評価する", type="primary"):
-            import random
             
             with loading_with_tips("スピーチを評価しています... / Evaluating your speech...", context="speaking"):
-                import time
-                time.sleep(1)
+                scores, recognized_text, feedback_text = _evaluate_speech_real(speech_audio, topic)
             
-            # 評価結果
-            scores = {
-                'content': random.randint(60, 95),
-                'fluency': random.randint(55, 90),
-                'vocabulary': random.randint(60, 92),
-                'grammar': random.randint(55, 88),
-                'pronunciation': random.randint(58, 93),
-            }
-            total = sum(scores.values()) // len(scores)
-            
-            st.markdown("### 📊 評価結果")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("総合スコア", f"{total}点")
-            with col2:
-                st.metric("流暢さ", f"{scores['fluency']}点")
-            with col3:
-                st.metric("発音", f"{scores['pronunciation']}点")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("内容", f"{scores['content']}点")
-            with col2:
-                st.metric("語彙", f"{scores['vocabulary']}点")
-            with col3:
-                st.metric("文法", f"{scores['grammar']}点")
-            
-            # フィードバック
-            st.markdown("#### 💬 フィードバック")
-            if total >= 80:
-                st.success("Great speech! Your ideas were well-organized and clearly expressed. 素晴らしいスピーチです！")
-            elif total >= 65:
-                st.info("Good effort! Try to use more varied vocabulary and provide specific examples. もう少し多様な語彙と具体例を使いましょう。")
+            if scores:
+                total = sum(scores.values()) // len(scores)
+                
+                st.markdown("### 📊 評価結果")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("総合スコア", f"{total}点")
+                with col2:
+                    st.metric("流暢さ", f"{scores.get('fluency', 0)}点")
+                with col3:
+                    st.metric("発音", f"{scores.get('pronunciation', 0)}点")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("内容", f"{scores.get('content', 0)}点")
+                with col2:
+                    st.metric("語彙", f"{scores.get('vocabulary', 0)}点")
+                with col3:
+                    st.metric("文法", f"{scores.get('grammar', 0)}点")
+                
+                # 認識テキスト表示
+                if recognized_text:
+                    with st.expander("📝 認識されたテキスト / Recognized Text"):
+                        st.markdown(recognized_text)
+                
+                # フィードバック
+                st.markdown("#### 💬 フィードバック")
+                if feedback_text:
+                    st.info(feedback_text)
+                elif total >= 80:
+                    st.success("Great speech! Your ideas were well-organized and clearly expressed. 素晴らしいスピーチです！")
+                elif total >= 65:
+                    st.info("Good effort! Try to use more varied vocabulary and provide specific examples. もう少し多様な語彙と具体例を使いましょう。")
+                else:
+                    st.warning("Keep practicing! Focus on organizing your ideas with a clear beginning, middle, and end. アイデアの整理に集中しましょう。")
+                
+                # XP付与
+                try:
+                    from utils.gamification import award_xp, update_stat, show_xp_notification
+                    xp = award_xp('speaking_practice')
+                    update_stat('speaking_practices')
+                    update_stat('speaking_best_score', total, mode='max')
+                    if total >= 90:
+                        award_xp('speaking_score_90')
+                    show_xp_notification(xp, "スピーチ練習")
+                except Exception:
+                    pass
+                
+                # DB記録
+                try:
+                    from utils.database import log_practice
+                    course_id = None
+                    registered = st.session_state.get('student_registered_classes', [])
+                    if registered:
+                        course_id = registered[0].get('class_key')
+                    
+                    log_practice(
+                        student_id=user['id'],
+                        course_id=course_id,
+                        module_type='speaking_pronunciation',
+                        score=total,
+                        activity_details={
+                            'activity': 'speech_practice',
+                            'topic': topic,
+                            'scores': scores,
+                            'recognized_text': recognized_text[:500] if recognized_text else '',
+                        }
+                    )
+                except Exception:
+                    pass
+                
+                # 分析記録
+                try:
+                    from utils.analytics import record_score, log_study_time
+                    record_score('speaking', total, scores)
+                    log_study_time('speaking', 5)
+                except Exception:
+                    pass
+
+
+def _evaluate_speech_real(speech_audio, topic=""):
+    """スピーチ音声を実APIで評価（Azure Speech + GPT）
+    
+    Returns: (scores_dict, recognized_text, feedback_text)
+    """
+    import tempfile
+    import os
+    
+    scores = {}
+    recognized_text = ""
+    feedback_text = ""
+    
+    try:
+        # 音声データをファイルオブジェクトに変換
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp:
+            if isinstance(speech_audio, bytes):
+                tmp.write(speech_audio)
             else:
-                st.warning("Keep practicing! Focus on organizing your ideas with a clear beginning, middle, and end. アイデアの整理に集中しましょう。")
+                tmp.write(speech_audio.read() if hasattr(speech_audio, 'read') else speech_audio)
+            tmp_path = tmp.name
+        
+        # Azure Speech APIで発音評価
+        class AudioFile:
+            def __init__(self, path):
+                self.name = path
+            def read(self):
+                with open(self.name, 'rb') as f:
+                    return f.read()
+        
+        from utils.speech_eval import evaluate_pronunciation
+        result = evaluate_pronunciation(AudioFile(tmp_path), reference_text="")
+        
+        # 一時ファイル削除
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+        
+        if result.get("success"):
+            azure_scores = result.get("scores", {})
+            recognized_text = result.get("recognized_text", "")
             
-            # XP付与
-            try:
-                from utils.gamification import award_xp, update_stat, show_xp_notification
-                xp = award_xp('speaking_practice')
-                update_stat('speaking_practices')
-                update_stat('speaking_best_score', total, mode='max')
-                if total >= 90:
-                    award_xp('speaking_score_90')
-                show_xp_notification(xp, "スピーチ練習")
-            except Exception:
-                pass
+            # 発音系スコア
+            scores['pronunciation'] = azure_scores.get('accuracy', 70)
+            scores['fluency'] = azure_scores.get('fluency', 65)
             
-            # 分析記録
-            try:
-                from utils.analytics import record_score, log_study_time
-                record_score('speaking', total, scores)
-                log_study_time('speaking', 5)
-            except Exception:
-                pass
+            # GPT評価（認識テキストがある場合）
+            if recognized_text and len(recognized_text.split()) >= 5:
+                try:
+                    from utils.gpt_eval import evaluate_language_use
+                    gpt_result = evaluate_language_use(recognized_text, context="speaking")
+                    
+                    if gpt_result.get("success"):
+                        gpt_scores = gpt_result.get("scores", {})
+                        scores['content'] = gpt_scores.get('content', 65)
+                        scores['vocabulary'] = gpt_scores.get('vocabulary', 65)
+                        scores['grammar'] = gpt_scores.get('grammar', 65)
+                        
+                        # GPTフィードバックテキスト
+                        content_analysis = gpt_result.get("content_analysis", {})
+                        if content_analysis:
+                            feedback_parts = []
+                            if content_analysis.get('strengths'):
+                                feedback_parts.append(f"👍 {content_analysis['strengths']}")
+                            if content_analysis.get('suggestions'):
+                                feedback_parts.append(f"💡 {content_analysis['suggestions']}")
+                            feedback_text = "\n\n".join(feedback_parts)
+                    else:
+                        scores['content'] = 65
+                        scores['vocabulary'] = 65
+                        scores['grammar'] = 65
+                except Exception:
+                    scores['content'] = 65
+                    scores['vocabulary'] = 65
+                    scores['grammar'] = 65
+            else:
+                # 認識テキストが短すぎる場合
+                scores['content'] = 50
+                scores['vocabulary'] = 50
+                scores['grammar'] = 50
+                feedback_text = "音声が短すぎるか、認識できませんでした。もう少し長く話してみてください。"
+        else:
+            # Azure APIエラー時のフォールバック
+            error_msg = result.get("error", "Unknown error")
+            st.warning(f"音声評価でエラーが発生しました: {error_msg}")
+            return None, "", ""
+    
+    except Exception as e:
+        st.warning(f"評価処理でエラーが発生しました: {e}")
+        return None, "", ""
+    
+    return scores, recognized_text, feedback_text
 
 
 def show_conversation_practice(user):
@@ -1100,10 +1214,22 @@ def show_assignment_submission(user):
             else:
                 if st.button("📤 提出して評価 / Submit & Evaluate", type="primary"):
                     with loading_with_tips("提出中... / Submitting & evaluating...", context="evaluation"):
-                        # 仮評価（将来はAzure Speech / SpeechAce連携）
-                        score = random.randint(65, 95)
-                        pronunciation = random.randint(60, 95)
-                        fluency = random.randint(60, 95)
+                        # Azure Speech APIで実評価
+                        from utils.speech_eval import evaluate_pronunciation
+                        eval_result = evaluate_pronunciation(uploaded, reference_text=target_text or "")
+                        
+                        if eval_result.get("success"):
+                            azure_scores = eval_result.get("scores", {})
+                            score = azure_scores.get("overall", 70)
+                            pronunciation = azure_scores.get("accuracy", 70)
+                            fluency = azure_scores.get("fluency", 65)
+                            recognized_text = eval_result.get("recognized_text", "")
+                        else:
+                            st.warning(f"音声評価エラー: {eval_result.get('error', 'Unknown')}")
+                            score = 0
+                            pronunciation = 0
+                            fluency = 0
+                            recognized_text = ""
                         
                         # --- Supabaseに保存 ---
                         try:
@@ -1114,12 +1240,16 @@ def show_assignment_submission(user):
                                 pronunciation=pronunciation,
                                 fluency=fluency,
                                 student_text=target_text,
-                                recognized_text="",  # TODO: STT連携時に実装
+                                recognized_text=recognized_text,
                             )
                         except Exception as e:
                             st.warning(f"DB保存エラー: {e}")
                         
                         st.success("✅ 提出完了！ / Submitted successfully!")
+                        
+                        if recognized_text:
+                            with st.expander("📝 認識されたテキスト"):
+                                st.markdown(recognized_text)
                         
                         col1, col2, col3 = st.columns(3)
                         with col1:

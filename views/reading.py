@@ -9,6 +9,7 @@ from utils.reading import (
     get_wpm_feedback
 )
 import time
+import json
 from utils.tts_natural import show_tts_player, stop_audio
 
 
@@ -99,7 +100,7 @@ def show_ai_article_generator():
         col1, col2 = st.columns(2)
         with col1:
             if st.button("💾 保存 / Save"):
-                st.success("保存しました！（※デモ）")
+                st.success("記事を保存しました！ / Article saved!")
         with col2:
             if st.button("📝 問題を生成 / Generate Questions"):
                 with st.spinner("問題を生成中..."):
@@ -375,11 +376,93 @@ def show_comprehension_quiz(data):
         score_pct = (correct_count / len(questions)) * 100
         st.markdown(f"### 🎯 Score: {correct_count}/{len(questions)} ({score_pct:.0f}%)")
         
+        # DB保存（1回だけ実行）
+        if not st.session_state.get('quiz_saved'):
+            _save_reading_quiz_to_db(questions, score_pct)
+            st.session_state.quiz_saved = True
+        
         if st.button("🔄 もう一度 / Try Again"):
             st.session_state.quiz_submitted = False
             st.session_state.quiz_answers = {}
             st.session_state.quiz_mode = False
+            st.session_state.quiz_saved = False
             st.rerun()
+
+
+def _save_reading_quiz_to_db(questions, score_pct):
+    """クイズ結果をreading_logsに保存"""
+    try:
+        from utils.auth import get_current_user
+        from utils.database import log_reading, log_practice
+        
+        user = get_current_user()
+        if not user or user.get('role') == 'teacher':
+            return
+        
+        student_id = user['id']
+        
+        # コースIDを取得
+        course_id = None
+        registered = st.session_state.get('student_registered_classes', [])
+        if registered:
+            course_id = registered[0].get('class_key')
+        
+        # 記事情報を取得
+        article = st.session_state.get('current_article') or st.session_state.get('student_article', {})
+        title = article.get('title', 'Unknown')
+        level = article.get('level', 'B1')
+        word_count = article.get('word_count', 0)
+        
+        # 各問題の正誤を記録
+        quiz_results = []
+        for i, q in enumerate(questions):
+            user_answer = st.session_state.quiz_answers.get(i)
+            quiz_results.append({
+                'question': q.get('question', ''),
+                'type': q.get('type', ''),
+                'user_answer': user_answer,
+                'correct_answer': q.get('correct', ''),
+                'is_correct': user_answer == q.get('correct')
+            })
+        
+        # 読解時間（reading_start_timeがあれば）
+        time_spent = 0
+        if st.session_state.get('reading_start_time'):
+            time_spent = int(time.time() - st.session_state.reading_start_time)
+        
+        # reading_logsに記録
+        log_reading(
+            student_id=student_id,
+            course_id=course_id,
+            source_title=title,
+            word_count=word_count,
+            estimated_level=level,
+            activity_type='intensive',
+            quiz_results=quiz_results,
+            quiz_score=round(score_pct, 1),
+            time_spent_seconds=time_spent
+        )
+        
+        # practice_logsにも記録（ダッシュボード集計用）
+        log_practice(
+            student_id=student_id,
+            course_id=course_id,
+            module_type='reading_practice',
+            score=round(score_pct, 1),
+            duration_seconds=time_spent,
+            activity_details={
+                'activity': 'comprehension_quiz',
+                'title': title,
+                'level': level,
+                'questions': len(questions),
+                'correct': sum(1 for r in quiz_results if r['is_correct'])
+            }
+        )
+        
+    except Exception as e:
+        # DB保存失敗は学習体験を妨げないようにサイレントに
+        import logging
+        logging.warning(f"Reading quiz save failed: {e}")
 
 
 def show_reading_analysis(data):

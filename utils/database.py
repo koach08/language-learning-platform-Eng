@@ -1574,3 +1574,91 @@ def get_course_chat_session_summary(course_id: str) -> Dict:
         'avg_score': round(sum(total_scores) / len(total_scores), 1) if total_scores else 0,
         'students': student_summaries,
     }
+
+
+# ============================================================
+# Reading Logs (リーディング学習記録)
+# ============================================================
+
+def log_reading(student_id: str, course_id: str = None, **kwargs) -> Dict:
+    """リーディング学習をreading_logsに記録
+    
+    kwargs:
+        source_title, source_url, word_count, estimated_level,
+        activity_type ('assigned'|'extensive'|'intensive'),
+        quiz_results (list of dicts), quiz_score (float),
+        time_spent_seconds, personal_notes, rating
+    """
+    supabase = get_supabase_client()
+    log_data = {
+        'student_id': student_id,
+        'course_id': course_id,
+        **kwargs
+    }
+    result = supabase.table('reading_logs').insert(log_data).execute()
+    return result.data[0] if result.data else None
+
+
+def get_student_reading_logs(student_id: str, days: int = 30, 
+                              course_id: str = None) -> List[Dict]:
+    """学生のリーディング履歴を取得"""
+    supabase = get_supabase_client()
+    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    
+    query = supabase.table('reading_logs')\
+        .select('*')\
+        .eq('student_id', student_id)\
+        .gte('completed_at', since)\
+        .order('completed_at', desc=True)
+    
+    if course_id:
+        query = query.eq('course_id', course_id)
+    
+    result = query.execute()
+    return result.data if result.data else []
+
+
+# ============================================================
+# Listening Logs (リスニング学習記録)
+# ============================================================
+
+def get_student_listening_logs(student_id: str, days: int = 30,
+                                course_id: str = None) -> List[Dict]:
+    """学生のリスニング履歴を取得"""
+    supabase = get_supabase_client()
+    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    
+    query = supabase.table('listening_logs')\
+        .select('*')\
+        .eq('student_id', student_id)\
+        .gte('completed_at', since)\
+        .order('completed_at', desc=True)
+    
+    if course_id:
+        query = query.eq('course_id', course_id)
+    
+    result = query.execute()
+    return result.data if result.data else []
+
+
+# ============================================================
+# Practice Logs Detail (練習ログ詳細取得)
+# ============================================================
+
+def get_student_practice_details(student_id: str, days: int = 30,
+                                  module_type: str = None) -> List[Dict]:
+    """学生の練習ログ詳細を取得（activity_details含む）"""
+    supabase = get_supabase_client()
+    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    
+    query = supabase.table('practice_logs')\
+        .select('*')\
+        .eq('student_id', student_id)\
+        .gte('practiced_at', since)\
+        .order('practiced_at', desc=True)
+    
+    if module_type:
+        query = query.eq('module_type', module_type)
+    
+    result = query.execute()
+    return result.data if result.data else []
