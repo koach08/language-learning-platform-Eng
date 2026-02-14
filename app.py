@@ -37,6 +37,7 @@ class_settings = safe_import("class_settings")
 teacher_dashboard = safe_import("teacher_dashboard")
 student_management = safe_import("student_management")
 student_portfolio = safe_import("student_portfolio")
+student_profile = safe_import("student_profile")
 assignments = safe_import("assignments")
 grades = safe_import("grades")
 learning_log = safe_import("learning_log")
@@ -232,6 +233,7 @@ def main():
         "grades": grades.show if grades else teacher_home.show,
         "learning_log": learning_log.show if learning_log else student_home.show,
         "test_prep": test_prep.show if test_prep else student_home.show,
+        "student_profile": student_profile.show if student_profile else student_home.show,
     }
     views.get(view, student_home.show if user["role"] == "student" else teacher_home.show)()
 
