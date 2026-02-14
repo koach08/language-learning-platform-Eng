@@ -352,14 +352,34 @@ def show_assignments_summary():
     user = get_current_user()
     student_id = user.get('id')
     
-    # コースIDを取得
+    # コースIDを取得（複数ソースからフォールバック）
     course_id = None
+    # 1. セッションの登録クラスから
     registered = st.session_state.get('student_registered_classes', [])
     if registered:
         course_id = registered[0].get('class_key')
+    # 2. ユーザーのclass_keyから
+    if not course_id:
+        course_id = user.get('class_key')
+    # 3. DBからenrollmentsを直接確認
+    if not course_id and student_id:
+        try:
+            from utils.database import get_student_enrollments
+            enrollments = get_student_enrollments(student_id)
+            if enrollments:
+                course = enrollments[0].get('courses')
+                if course:
+                    course_id = course.get('id')
+        except Exception:
+            pass
     
     if not student_id or not course_id:
-        st.info("まだ課題はありません")
+        # デバッグ: どこで止まっているか表示
+        with st.expander("🔍 デバッグ情報（課題が表示されない場合）"):
+            st.write(f"student_id: {student_id}")
+            st.write(f"course_id: {course_id}")
+            st.write(f"registered classes: {st.session_state.get('student_registered_classes', [])}")
+        st.info("コースに登録されていないため課題を表示できません")
         return
     
     try:
@@ -370,6 +390,9 @@ def show_assignments_summary():
         return
     
     if not assignments:
+        with st.expander("🔍 デバッグ情報"):
+            st.write(f"course_id: {course_id}")
+            st.write("assignmentsテーブルにこのcourse_idの課題が0件です")
         st.info("まだ課題はありません。教員が課題を作成するとここに表示されます。")
         return
     

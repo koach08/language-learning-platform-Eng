@@ -84,34 +84,57 @@ def show():
 
         st.markdown("---")
         st.markdown("### 📊 語学スコア")
-        st.caption("大学で受験済みのスコアがあれば入力してください（任意）")
+        st.caption("受験済みのスコアがあればタブを選んで入力してください（任意）")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            toefl_itp_score = st.number_input(
-                "TOEFL-ITP スコア",
-                min_value=0, max_value=677, step=1,
-                value=profile.get('toefl_itp_score', 0) or 0,
-                help="0の場合は未受験として扱います",
-            )
-        with col2:
-            other_test_name = st.selectbox(
-                "その他の語学検定",
-                ["（なし）", "TOEIC", "IELTS", "英検", "TOEFL iBT", "その他"],
-                index=0 if not profile.get('other_test_name') else
-                    ["（なし）", "TOEIC", "IELTS", "英検", "TOEFL iBT", "その他"].index(
-                        profile.get('other_test_name', '（なし）')
-                    ) if profile.get('other_test_name') in ["（なし）", "TOEIC", "IELTS", "英検", "TOEFL iBT", "その他"] else 5,
-            )
+        # 保存済みスコアをJSONBから読み込み
+        saved_scores = profile.get('test_scores') or {}
 
-        if other_test_name != "（なし）":
-            other_test_score = st.text_input(
-                f"{other_test_name} スコア/級",
-                value=profile.get('other_test_score', ''),
-                placeholder="例: 730、6.5、準1級",
+        test_tabs = st.tabs(["TOEFL-ITP", "TOEIC", "IELTS", "英検", "TOEFL iBT"])
+        test_scores_input = {}
+
+        with test_tabs[0]:
+            val = st.number_input(
+                "スコア（310〜677）", min_value=0, max_value=677, step=1,
+                value=saved_scores.get('toefl_itp', 0) or 0,
+                help="0 = 未受験", key="score_toefl_itp",
             )
-        else:
-            other_test_score = ""
+            if val > 0:
+                test_scores_input['toefl_itp'] = val
+
+        with test_tabs[1]:
+            val = st.number_input(
+                "スコア（10〜990）", min_value=0, max_value=990, step=5,
+                value=saved_scores.get('toeic', 0) or 0,
+                help="0 = 未受験", key="score_toeic",
+            )
+            if val > 0:
+                test_scores_input['toeic'] = val
+
+        with test_tabs[2]:
+            val = st.number_input(
+                "Overall Band Score", min_value=0.0, max_value=9.0, step=0.5,
+                value=float(saved_scores.get('ielts', 0) or 0),
+                help="0 = 未受験", key="score_ielts",
+            )
+            if val > 0:
+                test_scores_input['ielts'] = val
+
+        with test_tabs[3]:
+            eiken_options = ["（未受験）", "5級", "4級", "3級", "準2級", "2級", "準1級", "1級"]
+            saved_eiken = saved_scores.get('eiken', '（未受験）')
+            idx = eiken_options.index(saved_eiken) if saved_eiken in eiken_options else 0
+            val = st.selectbox("取得級", eiken_options, index=idx, key="score_eiken")
+            if val != "（未受験）":
+                test_scores_input['eiken'] = val
+
+        with test_tabs[4]:
+            val = st.number_input(
+                "スコア（0〜120）", min_value=0, max_value=120, step=1,
+                value=saved_scores.get('toefl_ibt', 0) or 0,
+                help="0 = 未受験", key="score_toefl_ibt",
+            )
+            if val > 0:
+                test_scores_input['toefl_ibt'] = val
 
         st.markdown("---")
         st.markdown("### 🎯 学習目標（任意）")
@@ -150,9 +173,11 @@ def show():
             'hobbies': hobbies.strip() or None,
             'self_intro_ja': self_intro_ja.strip() or None,
             'self_intro_en': self_intro_en.strip() or None,
-            'toefl_itp_score': toefl_itp_score if toefl_itp_score > 0 else None,
-            'other_test_name': other_test_name if other_test_name != "（なし）" else None,
-            'other_test_score': other_test_score.strip() or None,
+            'test_scores': test_scores_input if test_scores_input else None,
+            # 後方互換: toefl_itp_scoreも保持
+            'toefl_itp_score': test_scores_input.get('toefl_itp') if test_scores_input else None,
+            'other_test_name': None,
+            'other_test_score': None,
             'english_weakness': english_weakness.strip() or None,
             'english_goals': english_goals.strip() or None,
         }
