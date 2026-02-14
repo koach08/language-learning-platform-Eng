@@ -12,25 +12,28 @@ import time
 
 
 def play_tts_reading(text, speed=1.0):
-    """Web Speech APIでTTS再生"""
-    escaped_text = text.replace("'", "\\'").replace("\n", " ").replace('"', '\\"')
-    
-    js_code = f"""
-    <script>
-    (function() {{
-        window.speechSynthesis.cancel();
-        setTimeout(function() {{
-            const utterance = new SpeechSynthesisUtterance("{escaped_text}");
-            utterance.lang = "en-US";
-            utterance.rate = {speed};
-            window.speechSynthesis.speak(utterance);
-        }}, 100);
-    }})();
-    </script>
-    """
-    
-    st.components.v1.html(js_code, height=0)
-    st.success("🔊 音声を再生中... / Playing audio...")
+    """自然な音声で読み上げ（Edge TTS優先、フォールバックでWeb Speech API）"""
+    try:
+        from utils.tts_natural import play_natural_tts
+        play_natural_tts(text, "アメリカ英語 (女性)", speed)
+    except Exception:
+        # フォールバック: Web Speech API（ブラウザ内蔵）
+        escaped_text = text.replace("'", "\\'").replace("\n", " ").replace('"', '\\"')
+        js_code = f"""
+        <script>
+        (function() {{
+            window.speechSynthesis.cancel();
+            setTimeout(function() {{
+                const utterance = new SpeechSynthesisUtterance("{escaped_text}");
+                utterance.lang = "en-US";
+                utterance.rate = {speed};
+                window.speechSynthesis.speak(utterance);
+            }}, 100);
+        }})();
+        </script>
+        """
+        st.components.v1.html(js_code, height=0)
+        st.caption("⚠️ 自然音声が利用できないため、ブラウザ内蔵音声で再生中")
 
 
 @require_auth
