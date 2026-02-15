@@ -16,6 +16,7 @@ from utils.listening_youtube import (
     generate_learning_from_topic,
     CURATED_VIDEO_LIST
 )
+import time
 
 @require_auth
 def show():
@@ -146,7 +147,9 @@ def show_video_list_management():
         
         if st.button("➕ 追加", type="primary", key="add_new_vid"):
             if new_url and new_title:
-                st.success(f"「{new_title}」を追加しました！（※デモ）")
+                # TODO: DB保存（learning_materialsテーブル活用可能）
+                st.success(f"「{new_title}」を追加しました！")
+                st.caption("※ 動画リスト管理の完全なDB対応は次回アップデートで実装予定です")
     
     st.markdown("---")
     for category_key, category in CURATED_VIDEO_LIST.items():
@@ -191,7 +194,47 @@ def show_material_management():
 
 def show_class_listening_progress():
     st.markdown("### 📊 学習状況")
-    st.info("データベース接続後に表示されます")
+    
+    from views.teacher_home import _load_classes
+    user = get_current_user()
+    if not user:
+        return
+    classes = _load_classes(user['id'])
+    selected_class = st.session_state.get('selected_class')
+    
+    course_id = None
+    if selected_class and selected_class in classes:
+        course_id = classes[selected_class].get('db_id') or classes[selected_class].get('course_id')
+    
+    if not course_id:
+        st.info("クラスを選択してください（教員ホームで選択後に戻ってください）")
+        return
+    
+    try:
+        from utils.database import get_listening_stats_for_course, get_course_students
+        logs = get_listening_stats_for_course(course_id)
+        students = get_course_students(course_id)
+    except Exception:
+        logs = []
+        students = []
+    
+    if not logs:
+        st.info("まだリスニング学習の記録がありません")
+        return
+    
+    # 全体統計
+    total_sessions = len(logs)
+    quiz_scores = [l.get('quiz_score') for l in logs if l.get('quiz_score') is not None]
+    avg_score = sum(quiz_scores) / len(quiz_scores) if quiz_scores else 0
+    active_students = len(set(l.get('student_id') for l in logs))
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("総学習回数", f"{total_sessions}回")
+    with col2:
+        st.metric("平均スコア", f"{avg_score:.0f}%" if quiz_scores else "—")
+    with col3:
+        st.metric("アクティブ学生", f"{active_students}/{len(students)}人")
 
 
 # ==================== 学生用 ====================
@@ -417,6 +460,32 @@ def show_youtube_quiz(exercises):
         
         if st.button("📤 送信", type="primary", key="yt_quiz_submit"):
             st.session_state.yt_quiz_done = True
+            # --- DB保存 ---
+            try:
+                user = get_current_user()
+                if user:
+                    from utils.database import log_listening, log_practice
+                    correct_count = sum(1 for i, q in enumerate(questions) if st.session_state.yt_answers.get(i) == q.get('correct'))
+                    score = correct_count / max(len(questions), 1) * 100
+                    video_url = st.session_state.get('s_yt_video_url', '')
+                    # listening_logs に記録
+                    log_listening(
+                        student_id=user['id'],
+                        video_url=video_url,
+                        video_title=st.session_state.get('s_yt_exercises', {}).get('summary', {}).get('english', '')[:200],
+                        activity_type='extensive',
+                        quiz_score=score,
+                        quiz_results=[{'question': q.get('question', ''), 'user_answer': st.session_state.yt_answers.get(i, ''), 'correct_answer': q.get('correct', ''), 'is_correct': st.session_state.yt_answers.get(i) == q.get('correct')} for i, q in enumerate(questions)],
+                    )
+                    # practice_logs にも記録
+                    log_practice(
+                        student_id=user['id'],
+                        module_type='listening',
+                        activity_details={'type': 'youtube_quiz', 'score': score, 'video_url': video_url},
+                        score=score,
+                    )
+            except Exception:
+                pass  # DB保存失敗しても学習は続行
             st.rerun()
     else:
         correct = sum(1 for i, q in enumerate(questions) if st.session_state.yt_answers.get(i) == q.get('correct'))
@@ -459,9 +528,29 @@ def show_youtube_dictation(exercises):
     if user_input and st.button("✅ チェック", type="primary", key="dict_check"):
         result = check_dictation(original, user_input)
         if result.get("success"):
-            st.metric("正確さ", f"{result.get('accuracy_percentage', 0)}%")
+            accuracy = result.get('accuracy_percentage', 0)
+            st.metric("正確さ", f"{accuracy}%")
             with st.expander("正解"):
                 st.markdown(original)
+            # --- DB保存 ---
+            try:
+                user = get_current_user()
+                if user:
+                    from utils.database import log_listening, log_practice
+                    log_listening(
+                        student_id=user['id'],
+                        video_url=st.session_state.get('s_yt_video_url', ''),
+                        activity_type='practice',
+                        quiz_score=accuracy,
+                    )
+                    log_practice(
+                        student_id=user['id'],
+                        module_type='listening',
+                        activity_details={'type': 'dictation', 'accuracy': accuracy},
+                        score=accuracy,
+                    )
+            except Exception:
+                pass
 
 
 def show_listening_practice():
@@ -492,6 +581,27 @@ def show_listening_practice():
             st.audio(st.session_state[key], format='audio/mp3')
             if st.checkbox("📜 スクリプト", key="listen_script"):
                 st.markdown(material['script'])
+            # --- DB保存（再生時に1回記録） ---
+            log_key = f"logged_{selected}"
+            if log_key not in st.session_state:
+                try:
+                    user = get_current_user()
+                    if user:
+                        from utils.database import log_listening, log_practice
+                        log_listening(
+                            student_id=user['id'],
+                            video_title=material.get('title', ''),
+                            estimated_level=material.get('level', ''),
+                            activity_type='practice',
+                        )
+                        log_practice(
+                            student_id=user['id'],
+                            module_type='listening',
+                            activity_details={'type': 'material_practice', 'title': material.get('title', '')},
+                        )
+                        st.session_state[log_key] = True
+                except Exception:
+                    pass
 
 
 def show_student_ai_generator():
@@ -515,4 +625,51 @@ def show_student_ai_generator():
 
 def show_listening_progress():
     st.markdown("### 📊 学習記録")
-    st.info("データベース接続後に表示されます")
+    user = get_current_user()
+    if not user:
+        return
+    
+    try:
+        from utils.database import get_student_listening_logs, get_student_practice_details
+        logs = get_student_listening_logs(user['id'], days=90)
+        practice = get_student_practice_details(user['id'], days=90, module_type='listening')
+    except Exception:
+        logs = []
+        practice = []
+    
+    if not logs and not practice:
+        st.info("まだ学習記録がありません。リスニング練習を始めましょう！")
+        return
+    
+    # メトリクス
+    total_sessions = len(logs)
+    quiz_scores = [l.get('quiz_score') for l in logs if l.get('quiz_score') is not None]
+    avg_score = sum(quiz_scores) / len(quiz_scores) if quiz_scores else 0
+    total_practice = len(practice)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("学習回数", f"{total_sessions + total_practice}回")
+    with col2:
+        st.metric("平均スコア", f"{avg_score:.0f}%" if quiz_scores else "—")
+    with col3:
+        # activity_type別の内訳
+        types = {}
+        for l in logs:
+            t = l.get('activity_type', 'practice')
+            types[t] = types.get(t, 0) + 1
+        most_common = max(types, key=types.get) if types else "—"
+        type_labels = {'extensive': 'YouTube学習', 'practice': 'リスニング練習', 'assigned': '課題'}
+        st.metric("最多活動", type_labels.get(most_common, most_common))
+    
+    # 最近の履歴
+    st.markdown("---")
+    st.markdown("#### 📋 最近の学習")
+    recent = sorted(logs, key=lambda x: x.get('completed_at', ''), reverse=True)[:10]
+    for l in recent:
+        date_str = (l.get('completed_at', '') or '')[:10]
+        title = l.get('video_title', '') or l.get('activity_type', '')
+        score_str = f" — スコア: {l['quiz_score']:.0f}%" if l.get('quiz_score') is not None else ""
+        type_labels = {'extensive': '📺', 'practice': '🎧', 'assigned': '📋'}
+        icon = type_labels.get(l.get('activity_type', ''), '🎧')
+        st.caption(f"{icon} {date_str} | {title}{score_str}")

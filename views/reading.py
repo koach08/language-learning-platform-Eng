@@ -158,15 +158,58 @@ def show_class_reading_progress():
     """クラス学習状況"""
     
     st.markdown("### 📊 学習状況 / Reading Progress")
-    st.info("データベース接続後、学生の学習状況が表示されます")
+    
+    from views.teacher_home import _load_classes
+    user = get_current_user()
+    if not user:
+        return
+    classes = _load_classes(user['id'])
+    selected_class = st.session_state.get('selected_class')
+    
+    course_id = None
+    if selected_class and selected_class in classes:
+        course_id = classes[selected_class].get('db_id') or classes[selected_class].get('course_id')
+    
+    if not course_id:
+        st.info("クラスを選択してください（教員ホームで選択後に戻ってください）")
+        return
+    
+    try:
+        from utils.database import get_supabase_client, get_course_students
+        supabase = get_supabase_client()
+        students = get_course_students(course_id)
+        student_ids = [s['id'] for s in students]
+        
+        if student_ids:
+            logs = supabase.table('reading_logs')\
+                .select('student_id, quiz_score, time_spent_seconds, word_count')\
+                .in_('student_id', student_ids)\
+                .order('completed_at', desc=True)\
+                .limit(200)\
+                .execute()
+            reading_data = logs.data if logs.data else []
+        else:
+            reading_data = []
+    except Exception:
+        reading_data = []
+        students = []
+    
+    if not reading_data:
+        st.info("まだリーディング学習の記録がありません")
+        return
+    
+    quiz_scores = [d.get('quiz_score') for d in reading_data if d.get('quiz_score') is not None]
+    avg_score = sum(quiz_scores) / len(quiz_scores) if quiz_scores else 0
+    active_students = len(set(d.get('student_id') for d in reading_data))
+    total_articles = len(reading_data)
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("平均読解速度", "145 WPM")
+        st.metric("平均正答率", f"{avg_score:.0f}%" if quiz_scores else "—")
     with col2:
-        st.metric("平均正答率", "68%")
+        st.metric("総読了数", f"{total_articles} articles")
     with col3:
-        st.metric("完了記事数", "3.2 articles")
+        st.metric("アクティブ学生", f"{active_students}/{len(students)}人")
 
 
 def show_student_view():
@@ -557,14 +600,48 @@ def show_reading_progress():
     """学習記録"""
     
     st.markdown("### 📊 学習記録 / Reading Progress")
-    st.info("データベース接続後に表示されます")
+    
+    user = get_current_user()
+    if not user:
+        return
+    
+    try:
+        from utils.database import get_student_reading_logs, get_student_practice_details
+        logs = get_student_reading_logs(user['id'], days=90)
+        practice = get_student_practice_details(user['id'], days=90, module_type='reading')
+    except Exception:
+        logs = []
+        practice = []
+    
+    if not logs and not practice:
+        st.info("まだ学習記録がありません。リーディング練習を始めましょう！")
+        return
+    
+    quiz_scores = [l.get('quiz_score') for l in logs if l.get('quiz_score') is not None]
+    avg_score = sum(quiz_scores) / len(quiz_scores) if quiz_scores else 0
+    total_articles = len(logs)
+    total_words = sum(l.get('word_count', 0) or 0 for l in logs)
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("読んだ記事数", "12")
+        st.metric("読んだ記事数", f"{total_articles}")
     with col2:
-        st.metric("平均WPM", "142")
+        st.metric("総語数", f"{total_words:,}")
     with col3:
-        st.metric("平均正答率", "75%")
+        st.metric("平均正答率", f"{avg_score:.0f}%" if quiz_scores else "—")
     with col4:
-        st.metric("今週", "3 articles")
+        # 今週の記事数
+        from datetime import datetime, timedelta
+        week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        this_week = sum(1 for l in logs if (l.get('completed_at', '') or '') >= week_ago)
+        st.metric("今週", f"{this_week} articles")
+    
+    # 最近の履歴
+    if logs:
+        st.markdown("---")
+        st.markdown("#### 📋 最近の学習")
+        for l in logs[:8]:
+            date_str = (l.get('completed_at', '') or '')[:10]
+            title = l.get('source_title', '') or '—'
+            score_str = f" — 正答率: {l['quiz_score']:.0f}%" if l.get('quiz_score') is not None else ""
+            st.caption(f"📖 {date_str} | {title}{score_str}")

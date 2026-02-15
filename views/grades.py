@@ -16,7 +16,7 @@ def show():
     st.markdown("---")
     
     # クラス選択
-    selected_class = st.session_state.get('selected_class', 'english_specific_a')
+    selected_class = st.session_state.get('selected_class', 'english_1_a')
     classes = st.session_state.get('teacher_classes', {})
     course_id = None
     

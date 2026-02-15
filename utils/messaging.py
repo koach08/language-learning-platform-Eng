@@ -273,7 +273,7 @@ def show_question_board_tab(user_id, user_name, user_role):
         q_body = st.text_area("質問内容", key="q_body", height=100)
         q_tags = st.multiselect("タグ", ["speaking", "writing", "reading", "listening", "vocabulary", "grammar", "pronunciation", "other"], key="q_tags")
         
-        class_key = st.session_state.get('selected_class', 'english_specific_a')
+        class_key = st.session_state.get('selected_class', 'english_1_a')
         
         if st.button("📤 質問を投稿", key="q_submit"):
             if q_title and q_body:

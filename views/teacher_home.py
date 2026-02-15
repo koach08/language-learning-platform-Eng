@@ -9,50 +9,50 @@ from utils.database import (
 # デフォルトクラス（DB未登録時のフォールバック / マイグレーション元）
 # ============================================================
 DEFAULT_CLASSES = {
-    "english_specific_a": {
-        "name": "英語特定技能演習A（発信）",
-        "term": "2025前期",
-        "code": "ESA2025A",
-        "year": 2025,
-        "semester": "前期",
-        "modules": {
-            "speaking": True, "writing": True, "vocabulary": True,
-            "reading": False, "listening": False, "test_prep": False,
-        }
-    },
-    "english_specific_b": {
-        "name": "英語特定技能演習B（受信）",
-        "term": "2025前期",
-        "code": "ESB2025B",
-        "year": 2025,
-        "semester": "前期",
-        "modules": {
-            "speaking": False, "writing": False, "vocabulary": True,
-            "reading": True, "listening": True, "test_prep": False,
-        }
-    },
     "english_1_a": {
         "name": "英語I Aクラス",
-        "term": "2025前期",
-        "code": "ENG1A2025",
-        "year": 2025,
+        "term": "2026前期",
+        "code": "ENG1A2026",
+        "year": 2026,
         "semester": "前期",
         "modules": {
             "speaking": True, "writing": True, "vocabulary": True,
             "reading": True, "listening": True, "test_prep": False,
         }
     },
-    "english_seminar": {
-        "name": "英語演習",
-        "term": "2025前期",
-        "code": "ENGSEM2025",
-        "year": 2025,
+    "english_1_b": {
+        "name": "英語I Bクラス",
+        "term": "2026前期",
+        "code": "ENG1B2026",
+        "year": 2026,
         "semester": "前期",
         "modules": {
             "speaking": True, "writing": True, "vocabulary": True,
             "reading": True, "listening": True, "test_prep": False,
         }
-    }
+    },
+    "english_2_a": {
+        "name": "英語II Aクラス",
+        "term": "2026前期",
+        "code": "ENG2A2026",
+        "year": 2026,
+        "semester": "前期",
+        "modules": {
+            "speaking": True, "writing": True, "vocabulary": True,
+            "reading": True, "listening": True, "test_prep": False,
+        }
+    },
+    "english_2_b": {
+        "name": "英語II Bクラス",
+        "term": "2026前期",
+        "code": "ENG2B2026",
+        "year": 2026,
+        "semester": "前期",
+        "modules": {
+            "speaking": True, "writing": True, "vocabulary": True,
+            "reading": True, "listening": True, "test_prep": False,
+        }
+    },
 }
 
 
@@ -89,7 +89,7 @@ def _load_classes(user_id: str) -> dict:
                 "name": c['name'],
                 "term": f"{c.get('year', '')}{c.get('semester', '')}",
                 "code": c.get('class_code', c['id'][:8]),
-                "year": c.get('year', 2025),
+                "year": c.get('year', 2026),
                 "semester": c.get('semester', ''),
                 "modules": modules,
                 "is_active": c.get('is_active', True),
@@ -109,7 +109,7 @@ def _migrate_default_to_db(user_id: str) -> int:
             course = create_course(
                 teacher_id=user_id,
                 name=cls['name'],
-                year=cls.get('year', 2025),
+                year=cls.get('year', 2026),
                 semester=cls.get('semester', '前期'),
                 template_type='custom',
                 class_code=cls.get('code', key),

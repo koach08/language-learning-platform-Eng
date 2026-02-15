@@ -1632,6 +1632,26 @@ def get_student_reading_logs(student_id: str, days: int = 30,
 # Listening Logs (リスニング学習記録)
 # ============================================================
 
+def log_listening(student_id: str, course_id: str = None, **kwargs) -> Dict:
+    """リスニング学習をlistening_logsに記録
+
+    kwargs:
+        video_url, video_title, video_duration_seconds, estimated_level,
+        activity_type ('assigned'|'extensive'|'practice'),
+        pre_listening (dict), while_listening (dict), post_listening (dict),
+        quiz_results (list of dicts), quiz_score (float),
+        time_spent_seconds, api_cost
+    """
+    supabase = get_supabase_client()
+    log_data = {
+        'student_id': student_id,
+        'course_id': course_id,
+        **kwargs
+    }
+    result = supabase.table('listening_logs').insert(log_data).execute()
+    return result.data[0] if result.data else None
+
+
 def get_student_listening_logs(student_id: str, days: int = 30,
                                 course_id: str = None) -> List[Dict]:
     """学生のリスニング履歴を取得"""
@@ -1649,6 +1669,102 @@ def get_student_listening_logs(student_id: str, days: int = 30,
     
     result = query.execute()
     return result.data if result.data else []
+
+
+def get_listening_stats_for_course(course_id: str) -> List[Dict]:
+    """コース内の学生リスニング統計を取得（教員用）"""
+    supabase = get_supabase_client()
+    try:
+        result = supabase.table('listening_logs')\
+            .select('student_id, quiz_score, time_spent_seconds, activity_type, completed_at')\
+            .eq('course_id', course_id)\
+            .order('completed_at', desc=True)\
+            .execute()
+        return result.data if result.data else []
+    except Exception:
+        return []
+
+
+# ============================================================
+# Learning Logs (授業外学習ログ)
+# ============================================================
+
+def save_learning_log(student_id: str, log_data: dict) -> Dict:
+    """授業外学習ログをDBに保存"""
+    supabase = get_supabase_client()
+    data = {
+        'student_id': student_id,
+        'log_date': log_data.get('date'),
+        'category': log_data.get('category'),
+        'language': log_data.get('language', 'english'),
+        'title': log_data.get('title'),
+        'description': log_data.get('description'),
+        'duration_minutes': log_data.get('duration_minutes', 0),
+        'points': log_data.get('points', 0),
+        'evidence_url': log_data.get('evidence_url'),
+        'evidence_file_name': log_data.get('evidence_file'),
+        'status': log_data.get('status', 'pending'),
+    }
+    result = supabase.table('learning_logs').insert(data).execute()
+    return result.data[0] if result.data else None
+
+
+def get_student_learning_logs(student_id: str, limit: int = 100) -> List[Dict]:
+    """学生の授業外学習ログを取得"""
+    supabase = get_supabase_client()
+    result = supabase.table('learning_logs')\
+        .select('*')\
+        .eq('student_id', student_id)\
+        .order('log_date', desc=True)\
+        .limit(limit)\
+        .execute()
+    return result.data if result.data else []
+
+
+def update_learning_log(log_id: str, updates: dict) -> Dict:
+    """授業外学習ログを更新"""
+    supabase = get_supabase_client()
+    result = supabase.table('learning_logs')\
+        .update(updates)\
+        .eq('id', log_id)\
+        .execute()
+    return result.data[0] if result.data else None
+
+
+def delete_learning_log(log_id: str) -> bool:
+    """授業外学習ログを削除"""
+    supabase = get_supabase_client()
+    try:
+        supabase.table('learning_logs')\
+            .delete()\
+            .eq('id', log_id)\
+            .execute()
+        return True
+    except Exception:
+        return False
+
+
+def get_learning_logs_for_course(course_id: str) -> List[Dict]:
+    """コース内の学生の授業外学習ログを取得（教員用）"""
+    supabase = get_supabase_client()
+    try:
+        # enrollmentsから学生ID一覧を取得してフィルタ
+        enrollments = supabase.table('enrollments')\
+            .select('student_id')\
+            .eq('course_id', course_id)\
+            .execute()
+        if not enrollments.data:
+            return []
+        student_ids = [e['student_id'] for e in enrollments.data]
+        result = supabase.table('learning_logs')\
+            .select('*, users(name, email)')\
+            .in_('student_id', student_ids)\
+            .order('log_date', desc=True)\
+            .limit(200)\
+            .execute()
+        return result.data if result.data else []
+    except Exception:
+        return []
 
 
 # ============================================================

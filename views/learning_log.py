@@ -47,16 +47,8 @@ def show():
     
     st.markdown("---")
     
-    # 初期化
-    if 'learning_logs' not in st.session_state:
-        st.session_state.learning_logs = {}
-    
-    user_email = user.get('email', user.get('name', 'default'))
-    
-    if user_email not in st.session_state.learning_logs:
-        st.session_state.learning_logs[user_email] = []
-    
-    user_logs = st.session_state.learning_logs[user_email]
+    # --- DBからログを読み込み ---
+    user_logs = _load_user_logs(user['id'])
     
     # タブ
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -67,16 +59,62 @@ def show():
     ])
     
     with tab1:
-        show_add_log(user, user_email)
+        show_add_log(user, user_logs)
     with tab2:
         show_learning_summary(user_logs)
     with tab3:
-        show_learning_history(user_logs, user_email)
+        show_learning_history(user_logs, user['id'])
     with tab4:
         show_points_and_grades(user_logs)
 
 
-def show_add_log(user, user_email):
+def _load_user_logs(user_id: str) -> list:
+    """DBから学習ログを読み込み、失敗時はsession_stateにフォールバック"""
+    cache_key = f'_learning_logs_{user_id}'
+    
+    # キャッシュがあれば使う（同一セッション内の高速化）
+    if cache_key in st.session_state and not st.session_state.get('_learning_logs_refresh'):
+        return st.session_state[cache_key]
+    
+    try:
+        from utils.database import get_student_learning_logs
+        db_logs = get_student_learning_logs(user_id, limit=200)
+        # DB形式 → 表示用形式に変換
+        logs = []
+        for row in db_logs:
+            cat = row.get('category', 'other')
+            lang = row.get('language', 'english')
+            logs.append({
+                'id': row['id'],
+                'date': row.get('log_date', ''),
+                'category': cat,
+                'category_name': ACTIVITY_CATEGORIES.get(cat, {}).get('name', cat),
+                'language': lang,
+                'language_name': LANGUAGES.get(lang, lang),
+                'title': row.get('title', ''),
+                'description': row.get('description', ''),
+                'duration_minutes': row.get('duration_minutes', 0),
+                'points': row.get('points', 0),
+                'evidence_file': row.get('evidence_file_name'),
+                'evidence_url': row.get('evidence_url'),
+                'status': row.get('status', 'pending'),
+                'created_at': row.get('created_at', ''),
+                'from_db': True,
+            })
+        st.session_state[cache_key] = logs
+        st.session_state['_learning_logs_refresh'] = False
+        return logs
+    except Exception:
+        # DB接続失敗時はsession_stateフォールバック
+        return st.session_state.get(cache_key, [])
+
+
+def _refresh_logs():
+    """ログのキャッシュをクリアして再読み込みを促す"""
+    st.session_state['_learning_logs_refresh'] = True
+
+
+def show_add_log(user, user_logs):
     """学習を記録"""
     
     st.markdown("### ➕ 新しい学習を記録")
@@ -86,17 +124,12 @@ def show_add_log(user, user_email):
         col1, col2 = st.columns(2)
         
         with col1:
-            # 日付
             log_date = st.date_input("📅 日付", value=datetime.now().date())
-            
-            # カテゴリ
             category = st.selectbox(
                 "📂 活動カテゴリ",
                 list(ACTIVITY_CATEGORIES.keys()),
                 format_func=lambda x: ACTIVITY_CATEGORIES[x]['name']
             )
-            
-            # 言語
             language = st.selectbox(
                 "🌍 言語",
                 list(LANGUAGES.keys()),
@@ -104,18 +137,13 @@ def show_add_log(user, user_email):
             )
         
         with col2:
-            # 時間
             hours = st.number_input("⏱️ 学習時間（時間）", 0, 12, 1)
             minutes = st.number_input("⏱️ 学習時間（分）", 0, 59, 0, step=15)
-            
             total_minutes = hours * 60 + minutes
-            
-            # ポイント計算プレビュー
             points_per_hour = ACTIVITY_CATEGORIES[category]['points_per_hour']
             estimated_points = int(total_minutes / 60 * points_per_hour)
             st.info(f"💰 獲得予定ポイント: **{estimated_points}点**")
         
-        # 活動内容
         st.markdown("---")
         title = st.text_input("📌 タイトル *", placeholder="例: Netflix「フレンズ」シーズン1エピソード3")
         description = st.text_area(
@@ -124,7 +152,6 @@ def show_add_log(user, user_email):
             height=100
         )
         
-        # 証拠添付（任意）
         st.markdown("---")
         st.markdown("📎 **証拠を添付（任意）**")
         st.caption("スクリーンショット、写真、学習アプリの記録などを添付できます")
@@ -140,7 +167,6 @@ def show_add_log(user, user_email):
             placeholder="例: https://www.duolingo.com/profile/username"
         )
         
-        # 送信
         submitted = st.form_submit_button("📤 記録を保存", type="primary")
         
         if submitted:
@@ -149,45 +175,61 @@ def show_add_log(user, user_email):
             elif total_minutes == 0:
                 st.error("学習時間を入力してください")
             else:
-                # 新しいログを作成
-                new_log = {
-                    "id": f"log_{datetime.now().timestamp()}",
-                    "date": log_date.strftime("%Y-%m-%d"),
-                    "category": category,
-                    "category_name": ACTIVITY_CATEGORIES[category]['name'],
-                    "language": language,
-                    "language_name": LANGUAGES[language],
-                    "title": title,
-                    "description": description,
-                    "duration_minutes": total_minutes,
-                    "points": estimated_points,
-                    "evidence_file": uploaded_file.name if uploaded_file else None,
-                    "evidence_url": evidence_url if evidence_url else None,
-                    "status": "pending",  # pending, approved, rejected
-                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                log_data = {
+                    'date': log_date.strftime("%Y-%m-%d"),
+                    'category': category,
+                    'language': language,
+                    'title': title,
+                    'description': description,
+                    'duration_minutes': total_minutes,
+                    'points': estimated_points,
+                    'evidence_file': uploaded_file.name if uploaded_file else None,
+                    'evidence_url': evidence_url if evidence_url else None,
+                    'status': 'pending',
                 }
                 
-                st.session_state.learning_logs[user_email].insert(0, new_log)
+                # --- DB保存 ---
+                saved = False
+                try:
+                    from utils.database import save_learning_log
+                    result = save_learning_log(user['id'], log_data)
+                    if result:
+                        saved = True
+                        _refresh_logs()
+                except Exception as e:
+                    st.warning(f"DB保存に問題がありましたが、ローカルに記録しました: {e}")
+                
+                if not saved:
+                    # フォールバック: session_stateに保存
+                    cache_key = f'_learning_logs_{user["id"]}'
+                    if cache_key not in st.session_state:
+                        st.session_state[cache_key] = []
+                    log_data['id'] = f"local_{datetime.now().timestamp()}"
+                    log_data['category_name'] = ACTIVITY_CATEGORIES[category]['name']
+                    log_data['language_name'] = LANGUAGES[language]
+                    log_data['created_at'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    st.session_state[cache_key].insert(0, log_data)
                 
                 st.success(f"✅ 学習を記録しました！ +{estimated_points}ポイント")
                 st.balloons()
+                st.rerun()
     
     # 最近の記録
     st.markdown("---")
     st.markdown("### 📋 最近の記録")
     
-    recent_logs = st.session_state.learning_logs.get(user_email, [])[:3]
+    recent_logs = user_logs[:3]
     
     if recent_logs:
         for log in recent_logs:
             col1, col2, col3 = st.columns([1, 3, 1])
             with col1:
-                st.caption(log['date'])
+                st.caption(log.get('date', ''))
             with col2:
-                st.markdown(f"**{log['title']}**")
-                st.caption(f"{log['category_name']} | {log['language_name']} | {log['duration_minutes']}分")
+                st.markdown(f"**{log.get('title', '')}**")
+                st.caption(f"{log.get('category_name', '')} | {log.get('language_name', '')} | {log.get('duration_minutes', 0)}分")
             with col3:
-                st.markdown(f"+{log['points']}pt")
+                st.markdown(f"+{log.get('points', 0)}pt")
     else:
         st.info("まだ記録がありません")
 
@@ -201,7 +243,6 @@ def show_learning_summary(logs):
         st.info("まだ学習記録がありません。「➕ 学習を記録」から記録を始めましょう！")
         return
     
-    # 期間選択
     period = st.radio(
         "期間",
         ["week", "month", "semester", "all"],
@@ -209,15 +250,13 @@ def show_learning_summary(logs):
         horizontal=True
     )
     
-    # 期間でフィルタ
     filtered_logs = filter_logs_by_period(logs, period)
     
     st.markdown("---")
     
-    # メトリクス
-    total_minutes = sum(log['duration_minutes'] for log in filtered_logs)
-    total_points = sum(log['points'] for log in filtered_logs)
-    total_days = len(set(log['date'] for log in filtered_logs))
+    total_minutes = sum(log.get('duration_minutes', 0) for log in filtered_logs)
+    total_points = sum(log.get('points', 0) for log in filtered_logs)
+    total_days = len(set(log.get('date', '') for log in filtered_logs if log.get('date')))
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -225,13 +264,10 @@ def show_learning_summary(logs):
         hours = total_minutes // 60
         mins = total_minutes % 60
         st.metric("総学習時間", f"{hours}時間{mins}分")
-    
     with col2:
         st.metric("総ポイント", f"{total_points}pt")
-    
     with col3:
         st.metric("学習日数", f"{total_days}日")
-    
     with col4:
         avg_per_day = total_minutes / max(total_days, 1)
         st.metric("1日平均", f"{avg_per_day:.0f}分")
@@ -243,17 +279,17 @@ def show_learning_summary(logs):
     
     category_stats = {}
     for log in filtered_logs:
-        cat = log['category']
+        cat = log.get('category', 'other')
         if cat not in category_stats:
-            category_stats[cat] = {"minutes": 0, "points": 0, "count": 0}
-        category_stats[cat]['minutes'] += log['duration_minutes']
-        category_stats[cat]['points'] += log['points']
+            category_stats[cat] = {'minutes': 0, 'points': 0, 'count': 0}
+        category_stats[cat]['minutes'] += log.get('duration_minutes', 0)
+        category_stats[cat]['points'] += log.get('points', 0)
         category_stats[cat]['count'] += 1
     
     for cat, stats in sorted(category_stats.items(), key=lambda x: x[1]['minutes'], reverse=True):
         col1, col2, col3 = st.columns([3, 1, 1])
         with col1:
-            st.markdown(f"**{ACTIVITY_CATEGORIES[cat]['name']}**")
+            st.markdown(f"**{ACTIVITY_CATEGORIES.get(cat, {}).get('name', cat)}**")
             st.progress(stats['minutes'] / max(total_minutes, 1))
         with col2:
             st.caption(f"{stats['minutes']}分")
@@ -267,16 +303,16 @@ def show_learning_summary(logs):
     
     language_stats = {}
     for log in filtered_logs:
-        lang = log['language']
+        lang = log.get('language', 'english')
         if lang not in language_stats:
             language_stats[lang] = {"minutes": 0, "count": 0}
-        language_stats[lang]['minutes'] += log['duration_minutes']
+        language_stats[lang]['minutes'] += log.get('duration_minutes', 0)
         language_stats[lang]['count'] += 1
     
     for lang, stats in sorted(language_stats.items(), key=lambda x: x[1]['minutes'], reverse=True):
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.markdown(f"**{LANGUAGES[lang]}**")
+            st.markdown(f"**{LANGUAGES.get(lang, lang)}**")
             st.progress(stats['minutes'] / max(total_minutes, 1))
         with col2:
             hours = stats['minutes'] // 60
@@ -284,7 +320,7 @@ def show_learning_summary(logs):
             st.caption(f"{hours}h {mins}m")
 
 
-def show_learning_history(logs, user_email):
+def show_learning_history(logs, user_id):
     """学習履歴"""
     
     st.markdown("### 📋 学習履歴")
@@ -322,25 +358,24 @@ def show_learning_history(logs, user_email):
     # フィルタ適用
     filtered = logs.copy()
     if cat_filter != "all":
-        filtered = [l for l in filtered if l['category'] == cat_filter]
+        filtered = [l for l in filtered if l.get('category') == cat_filter]
     if lang_filter != "all":
-        filtered = [l for l in filtered if l['language'] == lang_filter]
+        filtered = [l for l in filtered if l.get('language') == lang_filter]
     if status_filter != "all":
         filtered = [l for l in filtered if l.get('status', 'pending') == status_filter]
     
     st.markdown("---")
     st.caption(f"{len(filtered)}件")
     
-    # 履歴表示
     for log in filtered:
-        with st.expander(f"📌 {log['date']} - {log['title']} (+{log['points']}pt)"):
+        with st.expander(f"📌 {log.get('date', '')} - {log.get('title', '')} (+{log.get('points', 0)}pt)"):
             col1, col2 = st.columns([3, 1])
             
             with col1:
-                st.markdown(f"**{log['title']}**")
-                st.markdown(f"- カテゴリ: {log['category_name']}")
-                st.markdown(f"- 言語: {log['language_name']}")
-                st.markdown(f"- 時間: {log['duration_minutes']}分")
+                st.markdown(f"**{log.get('title', '')}**")
+                st.markdown(f"- カテゴリ: {log.get('category_name', '')}")
+                st.markdown(f"- 言語: {log.get('language_name', '')}")
+                st.markdown(f"- 時間: {log.get('duration_minutes', 0)}分")
                 
                 if log.get('description'):
                     st.markdown("---")
@@ -363,39 +398,23 @@ def show_learning_history(logs, user_email):
                 else:
                     st.warning("⏳ 確認待ち")
                 
-                st.metric("ポイント", f"+{log['points']}")
+                st.metric("ポイント", f"+{log.get('points', 0)}")
             
-            # 編集・削除
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("✏️ 編集", key=f"edit_{log['id']}"):
-                    st.session_state[f'editing_log_{log["id"]}'] = True
-            with col2:
-                if st.button("🗑️ 削除", key=f"delete_{log['id']}"):
-                    st.session_state.learning_logs[user_email] = [
-                        l for l in st.session_state.learning_logs[user_email] if l['id'] != log['id']
-                    ]
-                    st.success("削除しました")
-                    st.rerun()
-            
-            if st.session_state.get(f'editing_log_{log["id"]}'):
-                st.markdown("---")
-                new_title = st.text_input("タイトル", value=log.get('title', ''), key=f"edit_title_{log['id']}")
-                new_duration = st.number_input("学習時間（分）", min_value=1, value=log.get('duration_minutes', 30), key=f"edit_dur_{log['id']}")
-                new_content = st.text_area("学習内容", value=log.get('content', ''), key=f"edit_content_{log['id']}")
-                ecol1, ecol2 = st.columns(2)
-                with ecol1:
-                    if st.button("💾 保存", key=f"save_log_{log['id']}"):
-                        log['title'] = new_title
-                        log['duration_minutes'] = new_duration
-                        log['content'] = new_content
-                        del st.session_state[f'editing_log_{log["id"]}']
-                        st.success("保存しました！")
-                        st.rerun()
-                with ecol2:
-                    if st.button("❌ キャンセル", key=f"cancel_log_{log['id']}"):
-                        del st.session_state[f'editing_log_{log["id"]}']
-                        st.rerun()
+            # 削除ボタン
+            log_id = log.get('id', '')
+            if log_id and st.button("🗑️ 削除", key=f"delete_{log_id}"):
+                try:
+                    from utils.database import delete_learning_log
+                    delete_learning_log(log_id)
+                    _refresh_logs()
+                except Exception:
+                    cache_key = f'_learning_logs_{user_id}'
+                    if cache_key in st.session_state:
+                        st.session_state[cache_key] = [
+                            l for l in st.session_state[cache_key] if l.get('id') != log_id
+                        ]
+                st.success("削除しました")
+                st.rerun()
 
 
 def show_points_and_grades(logs):
@@ -403,10 +422,9 @@ def show_points_and_grades(logs):
     
     st.markdown("### 🏆 ポイント・成績への反映")
     
-    # 総ポイント計算
-    total_points = sum(log['points'] for log in logs)
-    approved_points = sum(log['points'] for log in logs if log.get('status') == 'approved')
-    pending_points = sum(log['points'] for log in logs if log.get('status', 'pending') == 'pending')
+    total_points = sum(log.get('points', 0) for log in logs)
+    approved_points = sum(log.get('points', 0) for log in logs if log.get('status') == 'approved')
+    pending_points = sum(log.get('points', 0) for log in logs if log.get('status', 'pending') == 'pending')
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -418,7 +436,6 @@ def show_points_and_grades(logs):
     
     st.markdown("---")
     
-    # ポイントの成績換算
     st.markdown("#### 📊 成績への換算")
     
     st.markdown("""
@@ -431,22 +448,16 @@ def show_points_and_grades(logs):
     | 300+ | S | +10点 |
     """)
     
-    # 現在のランク
     if total_points >= 300:
-        rank = "S"
-        bonus = 10
+        rank, bonus = "S", 10
     elif total_points >= 200:
-        rank = "A"
-        bonus = 6
+        rank, bonus = "A", 6
     elif total_points >= 100:
-        rank = "B"
-        bonus = 4
+        rank, bonus = "B", 4
     elif total_points >= 50:
-        rank = "C"
-        bonus = 2
+        rank, bonus = "C", 2
     else:
-        rank = "D"
-        bonus = 0
+        rank, bonus = "D", 0
     
     st.markdown("---")
     st.markdown(f"### 🎯 現在のランク: **{rank}** (+{bonus}点)")
@@ -462,7 +473,6 @@ def show_points_and_grades(logs):
     
     st.markdown("---")
     
-    # ポイント獲得のヒント
     st.markdown("#### 💡 ポイントを増やすヒント")
     
     tips = [
@@ -485,7 +495,6 @@ def filter_logs_by_period(logs, period):
     elif period == "month":
         start_date = today.replace(day=1)
     elif period == "semester":
-        # 学期の開始日（仮に4月1日または10月1日）
         if today.month >= 4 and today.month < 10:
             start_date = today.replace(month=4, day=1)
         else:
@@ -496,4 +505,14 @@ def filter_logs_by_period(logs, period):
     else:
         return logs
     
-    return [log for log in logs if datetime.strptime(log['date'], "%Y-%m-%d").date() >= start_date]
+    filtered = []
+    for log in logs:
+        date_str = log.get('date', '')
+        if date_str:
+            try:
+                log_date = datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+                if log_date >= start_date:
+                    filtered.append(log)
+            except (ValueError, TypeError):
+                pass
+    return filtered
