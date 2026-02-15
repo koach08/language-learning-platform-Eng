@@ -156,7 +156,24 @@ def show_assignment_submission():
     
     # --- Supabaseから実課題を取得 ---
     user = get_current_user()
-    course_id = st.session_state.get('current_course', {}).get('id')
+    
+    # course_id を複数ソースから取得
+    course_id = st.session_state.get('submit_course_id')
+    if not course_id:
+        course_id = st.session_state.get('current_course', {}).get('id')
+    if not course_id:
+        try:
+            from utils.database import get_student_enrollments
+            enrollments = get_student_enrollments(user['id'])
+            if enrollments:
+                course = enrollments[0].get('courses')
+                if course:
+                    course_id = course.get('id')
+        except Exception:
+            pass
+    if not course_id:
+        course_id = user.get('class_key')
+    
     real_assignments = []
     is_demo = False
     
@@ -179,6 +196,50 @@ def show_assignment_submission():
         except Exception:
             pass
     
+    # assignmentsテーブルから全課題確認（writing固有フィルタで取れない場合のフォールバック）
+    if not real_assignments and course_id:
+        try:
+            from utils.database import get_student_assignment_status
+            all_a = get_student_assignment_status(user['id'], course_id)
+            for a in all_a:
+                a_type = a.get('type', '')
+                if not a_type or a_type.startswith('writing'):
+                    real_assignments.append({
+                        "id": a.get('assignment_id', ''),
+                        "title": a.get('title', 'Untitled'),
+                        "type": (a_type.replace('writing_', '') if a_type.startswith('writing_') else 'free_writing'),
+                        "instructions": '',
+                        "min_words": 0,
+                        "max_words": 500,
+                        "due": a.get('due_date', '-') or '-',
+                        "required": True,
+                        "db_id": a.get('assignment_id'),
+                    })
+        except Exception:
+            pass
+    
+    # assignmentsテーブルから全課題確認（フォールバック）
+    if not real_assignments and course_id:
+        try:
+            from utils.database import get_student_assignment_status
+            all_a = get_student_assignment_status(user['id'], course_id)
+            for a in all_a:
+                a_type = a.get('type', '')
+                if not a_type or a_type.startswith('writing'):
+                    real_assignments.append({
+                        "id": a.get('assignment_id', ''),
+                        "title": a.get('title', 'Untitled'),
+                        "type": (a_type.replace('writing_', '') if a_type.startswith('writing_') else 'free_writing'),
+                        "instructions": '',
+                        "min_words": 0,
+                        "max_words": 500,
+                        "due": a.get('due_date', '-') or '-',
+                        "required": True,
+                        "db_id": a.get('assignment_id'),
+                    })
+        except Exception:
+            pass
+
     if real_assignments:
         assignments = real_assignments
     else:
@@ -223,9 +284,19 @@ def show_assignment_submission():
     if is_demo:
         st.info("📖 まだ課題が登録されていません。以下はサンプル課題です。\n\nNo assignments registered yet. Below are sample assignments for reference.")
     
+    # student_homeから遷移した場合、該当課題を自動選択
+    preselect_id = st.session_state.pop('submit_assignment_id', None)
+    default_index = 0
+    if preselect_id:
+        for idx, a in enumerate(assignments):
+            if a.get('db_id') == preselect_id or a.get('id') == preselect_id:
+                default_index = idx
+                break
+    
     selected = st.selectbox(
         "課題を選択 / Select assignment",
         assignments,
+        index=default_index,
         format_func=lambda x: f"{'📌' if x['required'] else '📝'} {x['title']} (期限: {x['due']})"
     )
     
