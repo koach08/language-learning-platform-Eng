@@ -2,6 +2,7 @@
 Student Management (DB連携版)
 ==============================
 教員が学生をコースに追加・管理する画面。
+学習カルテ（ポートフォリオ）への遷移機能付き。
 """
 
 import streamlit as st
@@ -9,6 +10,7 @@ from utils.auth import get_current_user, require_auth
 from utils.database import (
     get_teacher_courses, get_course_students, get_all_students,
     enroll_student, unenroll_student, get_course_by_class_code,
+    get_course_student_profiles,
 )
 
 
@@ -50,47 +52,104 @@ def show():
 
     st.markdown(f"**クラスコード:** `{selected_course.get('class_code', 'なし')}` — このコードを学生に共有してください")
 
-    tab1, tab2, tab3 = st.tabs(["📋 登録学生一覧", "➕ 学生を追加", "📊 クラス情報"])
+    tab1, tab2, tab3 = st.tabs(["📋 学生一覧・カルテ", "➕ 学生を追加", "📊 クラス情報"])
 
     with tab1:
-        show_enrolled_students(selected_course)
+        show_student_list_with_profiles(selected_course)
     with tab2:
         show_add_student(selected_course)
     with tab3:
         show_class_info(selected_course)
 
 
-def show_enrolled_students(course):
-    """コースに登録済みの学生一覧"""
-    st.markdown("### 📋 登録学生一覧")
+def show_student_list_with_profiles(course):
+    """コースの学生一覧 + プロフィール概要 + カルテ遷移"""
+    st.markdown("### 📋 学生一覧")
 
     try:
-        students = get_course_students(course['id'])
+        students_with_profiles = get_course_student_profiles(course['id'])
     except Exception as e:
-        st.error(f"学生一覧の取得エラー: {e}")
+        st.error(f"学生データの取得エラー: {e}")
         return
 
-    if not students:
+    if not students_with_profiles:
         st.info("まだ学生が登録されていません。「➕ 学生を追加」タブから追加するか、学生にクラスコードを共有してください。")
         return
 
-    st.success(f"登録学生数: {len(students)}名")
+    st.success(f"登録学生数: {len(students_with_profiles)}名")
 
-    for i, s in enumerate(students):
-        col1, col2, col3 = st.columns([3, 2, 1])
+    # 検索
+    search = st.text_input("🔍 学生を検索（名前・学籍番号・学部）", key="student_search")
+
+    for i, s in enumerate(students_with_profiles):
+        profile = s.get('profile', {}) or {}
+        name = s.get('name', '不明')
+        email = s.get('email', '')
+        student_number = profile.get('student_number', '')
+        faculty = profile.get('faculty', '')
+
+        # 検索フィルタ
+        if search:
+            search_lower = search.lower()
+            searchable = f"{name} {student_number} {faculty} {email}".lower()
+            if search_lower not in searchable:
+                continue
+
+        col1, col2, col3, col4 = st.columns([2.5, 2, 1.5, 1])
+
         with col1:
-            st.markdown(f"**{s.get('name', '不明')}**")
+            st.markdown(f"**{name}**")
+            if student_number:
+                st.caption(f"学籍番号: {student_number}")
+            else:
+                st.caption(f"{email}")
+
         with col2:
-            st.caption(f"{s.get('email', '')}")
+            info_parts = []
+            if faculty:
+                info_parts.append(faculty)
+            test_scores = profile.get('test_scores') or {}
+            if test_scores:
+                score_parts = []
+                if test_scores.get('toefl_itp'):
+                    score_parts.append(f"TOEFL ITP: {test_scores['toefl_itp']}")
+                if test_scores.get('toeic'):
+                    score_parts.append(f"TOEIC: {test_scores['toeic']}")
+                if test_scores.get('eiken'):
+                    score_parts.append(f"英検: {test_scores['eiken']}")
+                if score_parts:
+                    info_parts.append(" / ".join(score_parts))
+            if info_parts:
+                st.caption(" | ".join(info_parts))
+            else:
+                st.caption("プロフィール未入力")
+
         with col3:
-            if st.button("❌ 削除", key=f"unenroll_{i}_{s.get('id', '')}"):
+            if st.button("📋 カルテ", key=f"karte_{i}_{s.get('id', '')}",
+                         use_container_width=True):
+                st.session_state['selected_student'] = {
+                    'id': s.get('id', ''),
+                    'user_id': s.get('id', ''),
+                    'name': name,
+                    'email': email,
+                    'student_id': student_number,
+                    'profile': profile,
+                }
+                st.session_state['current_view'] = 'student_portfolio'
+                st.rerun()
+
+        with col4:
+            if st.button("❌", key=f"unenroll_{i}_{s.get('id', '')}",
+                         help="コースから削除"):
                 try:
                     unenroll_student(s['id'], course['id'])
-                    st.success(f"{s.get('name', '')} を削除しました")
+                    st.success(f"{name} を削除しました")
                     st.cache_data.clear()
                     st.rerun()
                 except Exception as e:
                     st.error(f"削除エラー: {e}")
+
+        st.markdown("---")
 
 
 def show_add_student(course):

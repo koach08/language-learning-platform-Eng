@@ -24,7 +24,7 @@ def show_portfolio_teacher_view(student):
     col1, col2 = st.columns([1, 4])
     with col1:
         if st.button("← 戻る"):
-            st.session_state['current_view'] = 'teacher_dashboard'
+            st.session_state['current_view'] = 'student_management'
             st.rerun()
     with col2:
         st.markdown(f"## 📋 学生ポートフォリオ: {student['name']}")
@@ -34,11 +34,13 @@ def show_portfolio_teacher_view(student):
     st.caption(f"学籍番号: {student.get('student_id', 'N/A')} | 最終活動: {days_text}")
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 サマリー", "📝 学習履歴", "💬 提出物・フィードバック",
-        "📈 成長記録", "📓 教員メモ"
+    tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "👤 プロフィール", "📊 サマリー", "📝 学習履歴",
+        "💬 提出物・フィードバック", "📈 成長記録", "📓 教員メモ"
     ])
     sid = student.get('user_id', student.get('id', ''))
+    with tab0:
+        show_student_profile_readonly(student, sid)
     with tab1:
         show_portfolio_summary(student, sid)
     with tab2:
@@ -60,6 +62,78 @@ MODULE_LABELS = {
     'vocabulary_review': '📚 語彙学習',
     'exam_practice': '📝 検定練習',
 }
+
+
+def show_student_profile_readonly(student, student_id):
+    """教員用：学生プロフィール閲覧（読み取り専用）"""
+    st.markdown("### 👤 学生プロフィール")
+
+    # selected_studentに渡されたprofileを優先、なければDBから取得
+    profile = student.get('profile') or {}
+    if not profile:
+        try:
+            from utils.database import get_student_profile
+            profile = get_student_profile(student_id) or {}
+        except Exception:
+            profile = {}
+
+    if not profile:
+        st.info("この学生はまだプロフィールを入力していません。")
+        return
+
+    # 基本情報
+    st.markdown("#### 📋 基本情報")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f"**学籍番号:** {profile.get('student_number', '未入力')}")
+    with col2:
+        st.markdown(f"**学部:** {profile.get('faculty', '未入力')}")
+    with col3:
+        st.markdown(f"**出身地:** {profile.get('hometown') or '未入力'}")
+
+    if profile.get('hobbies'):
+        st.markdown(f"**趣味:** {profile['hobbies']}")
+
+    # 自己紹介
+    if profile.get('self_intro_ja') or profile.get('self_intro_en'):
+        st.markdown("---")
+        st.markdown("#### ✍️ 自己紹介")
+        if profile.get('self_intro_ja'):
+            st.markdown(f"**日本語:** {profile['self_intro_ja']}")
+        if profile.get('self_intro_en'):
+            st.markdown(f"**English:** {profile['self_intro_en']}")
+
+    # 検定スコア
+    test_scores = profile.get('test_scores') or {}
+    if test_scores:
+        st.markdown("---")
+        st.markdown("#### 📊 検定スコア")
+        score_cols = st.columns(min(len(test_scores), 5))
+        score_labels = {
+            'toefl_itp': 'TOEFL ITP',
+            'toeic': 'TOEIC',
+            'ielts': 'IELTS',
+            'eiken': '英検',
+            'toefl_ibt': 'TOEFL iBT',
+        }
+        for idx, (key, val) in enumerate(test_scores.items()):
+            if val:
+                with score_cols[idx % len(score_cols)]:
+                    label = score_labels.get(key, key)
+                    st.metric(label, str(val))
+    elif profile.get('toefl_itp_score'):
+        st.markdown("---")
+        st.markdown("#### 📊 検定スコア")
+        st.metric("TOEFL ITP", str(profile['toefl_itp_score']))
+
+    # 学習目標
+    if profile.get('english_weakness') or profile.get('english_goals'):
+        st.markdown("---")
+        st.markdown("#### 🎯 学習目標")
+        if profile.get('english_weakness'):
+            st.markdown(f"**苦手な部分:** {profile['english_weakness']}")
+        if profile.get('english_goals'):
+            st.markdown(f"**目標:** {profile['english_goals']}")
 
 
 def show_portfolio_summary(student, student_id):
