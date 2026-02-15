@@ -1,12 +1,12 @@
 import streamlit as st
 from utils.auth import get_current_user, require_auth
 from utils.vocabulary import (
-    DEMO_WORD_LISTS, 
     get_word_details, 
     generate_quiz_question,
     generate_word_list_from_prompt,
     generate_exercises_for_word
 )
+from utils.materials_loader import load_materials
 from utils.database import (
     add_vocabulary,
     get_student_vocabulary,
@@ -145,13 +145,16 @@ def show_list_management():
     st.markdown("### 📋 単語リスト管理 / Manage Word Lists")
     
     st.markdown("#### 既存のリスト / Existing Lists")
-    for key, word_list in DEMO_WORD_LISTS.items():
-        with st.expander(f"📚 {word_list['name']} ({len(word_list['words'])} words) - {word_list.get('level', '')}"):
-            st.caption(word_list['description'])
-            for w in word_list['words'][:5]:
+    word_lists = load_materials('vocabulary')
+    for key, word_list in word_lists.items():
+        words = word_list.get('words', [])
+        name = word_list.get('name', word_list.get('title', key))
+        with st.expander(f"📚 {name} ({len(words)} words) - {word_list.get('level', '')}"):
+            st.caption(word_list.get('description', ''))
+            for w in words[:5]:
                 st.markdown(f"- **{w['word']}**: {w['meaning']}")
-            if len(word_list['words']) > 5:
-                st.caption(f"... and {len(word_list['words']) - 5} more")
+            if len(words) > 5:
+                st.caption(f"... and {len(words) - 5} more")
 
 
 def show_class_progress():
@@ -472,7 +475,11 @@ def show_flashcards():
     
     st.markdown("### 🃏 フラッシュカード / Flashcards")
     
-    list_options = {key: f"{data['name']} ({data.get('level', '')})" for key, data in DEMO_WORD_LISTS.items()}
+    word_lists = load_materials('vocabulary')
+    if not word_lists:
+        st.info("単語リストがありません")
+        return
+    list_options = {key: f"{data.get('name', data.get('title', key))} ({data.get('level', '')})" for key, data in word_lists.items()}
     selected_list = st.selectbox(
         "単語リストを選択 / Select Word List",
         options=list(list_options.keys()),
@@ -480,8 +487,8 @@ def show_flashcards():
     )
     
     if selected_list:
-        word_list = DEMO_WORD_LISTS[selected_list]
-        words = word_list['words']
+        word_list = word_lists[selected_list]
+        words = word_list.get('words', [])
         
         if 'flashcard_index' not in st.session_state:
             st.session_state.flashcard_index = 0
@@ -557,7 +564,11 @@ def show_quiz():
     
     st.markdown("### 📝 単語テスト / Vocabulary Quiz")
     
-    list_options = {key: data['name'] for key, data in DEMO_WORD_LISTS.items()}
+    word_lists = load_materials('vocabulary')
+    if not word_lists:
+        st.info("単語リストがありません")
+        return
+    list_options = {key: data.get('name', data.get('title', key)) for key, data in word_lists.items()}
     selected_list = st.selectbox(
         "単語リストを選択",
         options=list(list_options.keys()),
@@ -575,7 +586,7 @@ def show_quiz():
     if 'quiz_started' not in st.session_state:
         st.session_state.quiz_started = False
     
-    word_list = DEMO_WORD_LISTS[selected_list]
+    word_list = word_lists[selected_list]
     words = word_list['words']
     
     if not st.session_state.quiz_started:

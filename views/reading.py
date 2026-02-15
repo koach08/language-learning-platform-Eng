@@ -1,13 +1,13 @@
 import streamlit as st
 from utils.auth import get_current_user, require_auth
 from utils.reading import (
-    DEMO_ARTICLES,
     generate_comprehension_questions,
     generate_summary_and_vocabulary,
     generate_article_from_prompt,
     calculate_wpm,
     get_wpm_feedback
 )
+from utils.materials_loader import load_materials
 import time
 import json
 from utils.tts_natural import show_tts_player, stop_audio
@@ -143,13 +143,15 @@ def show_article_management():
     
     st.markdown("### 📋 記事管理 / Manage Articles")
     
-    for key, article in DEMO_ARTICLES.items():
-        with st.expander(f"📰 {article['title']} ({article['level']})"):
-            st.caption(f"Category: {article['category']} | Words: {article['word_count']}")
-            st.markdown(article['text'][:200] + "...")
+    articles = load_materials('reading')
+    for key, article in articles.items():
+        with st.expander(f"📰 {article['title']} ({article.get('level', '')})"):
+            st.caption(f"Category: {article.get('category', '')} | Words: {article.get('word_count', '')}")
+            st.markdown((article.get('text', '') or '')[:200] + "...")
             
             # 読み上げ機能
-            show_tts_player(article['text'], key_prefix=f"tts_mgmt_{key}")
+            if article.get('text'):
+                show_tts_player(article['text'], key_prefix=f"tts_mgmt_{key}")
 
 
 def show_class_reading_progress():
@@ -192,7 +194,11 @@ def show_reading_practice():
     st.markdown("### 📖 記事を読む / Read Articles")
     
     # 記事選択
-    article_options = {key: f"{data['title']} ({data['level']})" for key, data in DEMO_ARTICLES.items()}
+    articles = load_materials('reading')
+    if not articles:
+        st.info("リーディング教材がありません")
+        return
+    article_options = {key: f"{data['title']} ({data.get('level', '')})" for key, data in articles.items()}
     selected = st.selectbox(
         "記事を選択 / Select Article",
         options=list(article_options.keys()),
@@ -200,7 +206,7 @@ def show_reading_practice():
     )
     
     if selected:
-        article = DEMO_ARTICLES[selected]
+        article = articles[selected]
         
         st.markdown("---")
         st.markdown(f"### 📰 {article['title']}")

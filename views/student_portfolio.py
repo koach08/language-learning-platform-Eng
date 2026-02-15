@@ -443,20 +443,59 @@ def show_growth_record(student_id):
 
 
 def show_teacher_notes(student):
-    """教員メモ"""
+    """教員メモ（DB永続化）"""
     st.markdown("### 📓 教員メモ")
-    st.caption("この学生に関するメモや個別目標を記録できます（今後DB保存を実装予定）")
+    st.caption("この学生に関するメモや個別目標を記録できます")
+
     sid = student.get('user_id', student.get('id', ''))
+    teacher = get_current_user()
+    teacher_id = teacher.get('id', '')
+
+    # DBからメモを読み込み、失敗時はsession_stateにフォールバック
+    existing_note = None
+    db_available = False
+    try:
+        from utils.database import get_teacher_note
+        existing_note = get_teacher_note(teacher_id, sid)
+        db_available = True
+    except Exception:
+        pass
+
     memo_key = f"teacher_memo_{sid}"
     goal_key = f"teacher_goal_{sid}"
-    new_goal = st.text_input("🎯 個別目標", value=st.session_state.get(goal_key, ""),
+
+    if existing_note:
+        default_goal = existing_note.get('goal', '')
+        default_memo = existing_note.get('memo', '')
+    else:
+        default_goal = st.session_state.get(goal_key, '')
+        default_memo = st.session_state.get(memo_key, '')
+
+    new_goal = st.text_input("🎯 個別目標", value=default_goal,
                               placeholder="例: TOEFL ITP 500点達成")
-    new_memo = st.text_area("📝 メモ", value=st.session_state.get(memo_key, ""),
+    new_memo = st.text_area("📝 メモ", value=default_memo,
                              placeholder="この学生に関する観察メモ...", height=150)
+
     if st.button("💾 メモを保存", type="primary"):
+        saved = False
+        if db_available:
+            try:
+                from utils.database import upsert_teacher_note
+                result = upsert_teacher_note(teacher_id, sid,
+                                             memo=new_memo, goal=new_goal)
+                if result:
+                    saved = True
+            except Exception:
+                pass
+
+        # session_stateにも保存（フォールバック）
         st.session_state[memo_key] = new_memo
         st.session_state[goal_key] = new_goal
-        st.success("保存しました（※現在はセッション内のみ。DB永続化は今後実装）")
+
+        if saved:
+            st.success("✅ メモを保存しました")
+        else:
+            st.warning("⚠️ セッション内に保存しました（DB保存は teacher_notes テーブル作成後に有効になります）")
 
 
 def show_portfolio_student_view(user):

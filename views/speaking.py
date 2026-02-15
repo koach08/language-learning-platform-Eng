@@ -22,6 +22,36 @@ from utils.database import (
     create_assignment,
 )
 
+
+def _resolve_course_id() -> str:
+    """course_idを複数ソースから解決（writing_submit.pyと同じパターン）"""
+    # 1. student_homeからの遷移時
+    cid = st.session_state.get('submit_course_id')
+    if cid:
+        return cid
+    # 2. current_course（従来パターン）
+    cid = _resolve_course_id()
+    if cid:
+        return cid
+    # 3. DBからenrollments
+    try:
+        from utils.database import get_student_enrollments
+        user = get_current_user()
+        enrollments = get_student_enrollments(user['id'])
+        if enrollments:
+            course = enrollments[0].get('courses')
+            if course:
+                return course.get('id')
+    except Exception:
+        pass
+    # 4. user.class_key
+    try:
+        user = get_current_user()
+        return user.get('class_key')
+    except Exception:
+        pass
+    return None
+
 # プリセット教材
 PRESET_MATERIALS = {
     "beginner": [
@@ -476,7 +506,7 @@ def show_ai_text_generation(user):
                             title=topic[:30],
                             text=generated['text'],
                             level=difficulty,
-                            course_id=st.session_state.get('current_course', {}).get('id'),
+                            course_id=_resolve_course_id(),
                             topic=topic,
                             style=style,
                             vocabulary=generated.get('vocabulary', []),
@@ -773,7 +803,7 @@ def save_practice_history(user, material, score, pronunciation, fluency):
             fluency=fluency,
             word_count=len(material['text'].split()),
             material_level=material.get('level', ''),
-            course_id=st.session_state.get('current_course', {}).get('id'),
+            course_id=_resolve_course_id(),
         )
     except Exception as e:
         st.warning(f"DB保存に失敗しました（ローカルには保存済み）: {e}")
@@ -1104,7 +1134,7 @@ def show_assignment_submission(user):
     st.markdown("### 📤 課題提出")
     st.caption("教員から出された課題を提出します")
     
-    course_id = st.session_state.get('current_course', {}).get('id')
+    course_id = _resolve_course_id()
     
     # --- コースの課題一覧をDBから取得 ---
     assignments = []
@@ -1338,7 +1368,7 @@ def show_submission_review():
     st.markdown("### 📋 学生の提出を確認")
     
     user = get_current_user()
-    course_id = st.session_state.get('current_course', {}).get('id')
+    course_id = _resolve_course_id()
     
     # --- コースの課題一覧をDBから取得 ---
     assignments_list = []
@@ -1433,7 +1463,7 @@ def show_grade_summary():
     
     st.markdown("### 📊 成績一覧")
     
-    course_id = st.session_state.get('current_course', {}).get('id')
+    course_id = _resolve_course_id()
     
     if not course_id:
         st.info("コースが選択されていません。「⚙️ 科目設定」でコースを選択してください。")
@@ -1566,7 +1596,7 @@ def show_material_management():
                     text=new_text,
                     level=new_level,
                     category=new_cat,
-                    course_id=st.session_state.get('current_course', {}).get('id'),
+                    course_id=_resolve_course_id(),
                 )
             except Exception as e:
                 st.warning(f"DB保存に失敗: {e}")
@@ -1585,7 +1615,7 @@ def show_class_progress():
     
     import pandas as pd
     
-    course_id = st.session_state.get('current_course', {}).get('id')
+    course_id = _resolve_course_id()
     
     if not course_id:
         st.info("コースが選択されていません。「⚙️ 科目設定」でコースを選択してください。")
@@ -1645,7 +1675,7 @@ def show_class_progress():
 def show_rubric_settings():
     st.markdown("### 🎯 評価基準")
     
-    course_id = st.session_state.get('current_course', {}).get('id')
+    course_id = _resolve_course_id()
     
     # --- Supabaseから評価基準を取得 ---
     if 'speaking_rubric' not in st.session_state:
@@ -1725,7 +1755,7 @@ def show_assignment_creation():
     st.markdown("### 📝 課題作成")
     
     user = get_current_user()
-    course_id = st.session_state.get('current_course', {}).get('id')
+    course_id = _resolve_course_id()
     
     if not course_id:
         st.info("コースが選択されていません。「⚙️ 科目設定」でコースを選択してください。")

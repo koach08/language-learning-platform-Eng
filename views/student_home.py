@@ -88,6 +88,9 @@ def show():
 
     enabled_modules = get_enabled_modules(class_key)
 
+    # プロフィール概要
+    show_profile_summary(user)
+
     # ゲーミフィケーション ステータスバー
     show_gamification_status_bar()
 
@@ -115,6 +118,70 @@ def show():
     # 詳細ステータス（展開式）
     with st.expander("🎮 学習ステータス詳細 / Full Status"):
         show_gamification_dashboard()
+
+
+def show_profile_summary(user):
+    """学生プロフィール概要をダッシュボード上部に表示"""
+    profile = None
+    try:
+        from utils.database import get_student_profile
+        profile = get_student_profile(user['id'])
+    except Exception:
+        pass
+
+    if not profile:
+        # プロフィール未登録
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.info("👤 プロフィールを登録すると、ここに表示されます")
+        with col2:
+            if st.button("✏️ 登録する", key="profile_register_btn", use_container_width=True):
+                st.session_state['current_view'] = 'student_profile'
+                st.rerun()
+        return
+
+    # --- プロフィール登録済み: コンパクト表示 ---
+    # 1行目: 基本情報
+    parts = []
+    if profile.get('student_number'):
+        parts.append(f"🆔 {profile['student_number']}")
+    if profile.get('faculty'):
+        parts.append(f"🏫 {profile['faculty']}")
+    if profile.get('hometown'):
+        parts.append(f"📍 {profile['hometown']}")
+
+    # 2行目: スコア
+    score_parts = []
+    scores = profile.get('test_scores') or {}
+    if scores.get('toefl_itp'):
+        score_parts.append(f"TOEFL-ITP: {scores['toefl_itp']}")
+    if scores.get('toeic'):
+        score_parts.append(f"TOEIC: {scores['toeic']}")
+    if scores.get('ielts'):
+        score_parts.append(f"IELTS: {scores['ielts']}")
+    if scores.get('eiken'):
+        score_parts.append(f"英検: {scores['eiken']}")
+    if scores.get('toefl_ibt'):
+        score_parts.append(f"TOEFL iBT: {scores['toefl_ibt']}")
+
+    # 表示
+    info_line = " ｜ ".join(parts) if parts else ""
+    score_line = " ｜ ".join(score_parts) if score_parts else ""
+
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        if info_line:
+            st.markdown(f"**{info_line}**")
+        if score_line:
+            st.caption(f"📊 {score_line}")
+        if profile.get('english_goals'):
+            st.caption(f"🎯 {profile['english_goals']}")
+    with col2:
+        if st.button("✏️ 編集", key="profile_edit_btn", use_container_width=True):
+            st.session_state['current_view'] = 'student_profile'
+            st.rerun()
+
+    st.markdown("---")
 
 
 def show_gamification_status_bar():

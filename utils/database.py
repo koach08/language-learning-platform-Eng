@@ -1672,3 +1672,168 @@ def get_student_practice_details(student_id: str, days: int = 30,
     
     result = query.execute()
     return result.data if result.data else []
+
+
+# ============================================================
+# Teacher Notes (教員メモ — 学生カルテ用)
+# ============================================================
+
+def get_teacher_note(teacher_id: str, student_id: str) -> Optional[Dict]:
+    """教員が特定の学生に対して保存したメモ・目標を取得"""
+    supabase = get_supabase_client()
+    try:
+        result = supabase.table('teacher_notes')\
+            .select('*')\
+            .eq('teacher_id', teacher_id)\
+            .eq('student_id', student_id)\
+            .execute()
+        return result.data[0] if result.data else None
+    except Exception:
+        return None
+
+
+def upsert_teacher_note(teacher_id: str, student_id: str,
+                        memo: str = '', goal: str = '') -> Optional[Dict]:
+    """教員メモを作成/更新"""
+    supabase = get_supabase_client()
+    data = {
+        'teacher_id': teacher_id,
+        'student_id': student_id,
+        'memo': memo,
+        'goal': goal,
+        'updated_at': datetime.utcnow().isoformat(),
+    }
+    try:
+        result = supabase.table('teacher_notes').upsert(
+            data, on_conflict='teacher_id,student_id'
+        ).execute()
+        return result.data[0] if result.data else None
+    except Exception:
+        return None
+
+
+# ============================================================
+# Learning Materials (教材データベース)
+# ============================================================
+
+def get_learning_materials(module_type: str, course_id: str = None,
+                           active_only: bool = True) -> List[Dict]:
+    """教材一覧を取得。course_id指定でコース専用教材も含む"""
+    supabase = get_supabase_client()
+    try:
+        query = supabase.table('learning_materials')\
+            .select('*')\
+            .eq('module_type', module_type)
+
+        if active_only:
+            query = query.eq('is_active', True)
+
+        query = query.order('sort_order').order('created_at')
+        result = query.execute()
+
+        if not result.data:
+            return []
+
+        # 共通教材 + コース専用教材をフィルタ
+        materials = []
+        for m in result.data:
+            if m.get('course_id') is None or m.get('course_id') == course_id:
+                materials.append(m)
+        return materials
+    except Exception:
+        return []
+
+
+def get_learning_material(material_id: str) -> Optional[Dict]:
+    """教材を1件取得"""
+    supabase = get_supabase_client()
+    try:
+        result = supabase.table('learning_materials')\
+            .select('*').eq('id', material_id).execute()
+        return result.data[0] if result.data else None
+    except Exception:
+        return None
+
+
+def upsert_learning_material(data: Dict) -> Optional[Dict]:
+    """教材を作成/更新"""
+    supabase = get_supabase_client()
+    data['updated_at'] = datetime.utcnow().isoformat()
+    try:
+        result = supabase.table('learning_materials').upsert(
+            data, on_conflict='module_type,material_key'
+        ).execute()
+        return result.data[0] if result.data else None
+    except Exception:
+        return None
+
+
+def delete_learning_material(material_id: str) -> bool:
+    """教材を削除（論理削除: is_active=False）"""
+    supabase = get_supabase_client()
+    try:
+        supabase.table('learning_materials')\
+            .update({'is_active': False, 'updated_at': datetime.utcnow().isoformat()})\
+            .eq('id', material_id).execute()
+        return True
+    except Exception:
+        return False
+
+
+def seed_default_materials() -> int:
+    """デモ教材をDBに投入（既存があればスキップ）"""
+    count = 0
+
+    # Listening
+    try:
+        from utils.listening import DEMO_LISTENING
+        for key, data in DEMO_LISTENING.items():
+            content = {k: v for k, v in data.items() if k not in ('title', 'level', 'category')}
+            result = upsert_learning_material({
+                'module_type': 'listening',
+                'material_key': key,
+                'title': data.get('title', key),
+                'level': data.get('level', 'B1'),
+                'category': data.get('category', ''),
+                'content': content,
+            })
+            if result:
+                count += 1
+    except Exception:
+        pass
+
+    # Reading
+    try:
+        from utils.reading import DEMO_ARTICLES
+        for key, data in DEMO_ARTICLES.items():
+            content = {k: v for k, v in data.items() if k not in ('title', 'level', 'category')}
+            result = upsert_learning_material({
+                'module_type': 'reading',
+                'material_key': key,
+                'title': data.get('title', key),
+                'level': data.get('level', 'B1'),
+                'category': data.get('category', ''),
+                'content': content,
+            })
+            if result:
+                count += 1
+    except Exception:
+        pass
+
+    # Vocabulary
+    try:
+        from utils.vocabulary import DEMO_WORD_LISTS
+        for key, data in DEMO_WORD_LISTS.items():
+            result = upsert_learning_material({
+                'module_type': 'vocabulary',
+                'material_key': key,
+                'title': data.get('name', key),
+                'description': data.get('description', ''),
+                'content': {'words': data.get('words', [])},
+            })
+            if result:
+                count += 1
+    except Exception:
+        pass
+
+    return count

@@ -1,12 +1,12 @@
 import streamlit as st
 from utils.auth import get_current_user, require_auth
 from utils.listening import (
-    DEMO_LISTENING,
     generate_audio_with_openai,
     generate_dialogue_audio_with_speakers,
     check_dictation,
     generate_listening_from_prompt
 )
+from utils.materials_loader import load_materials
 from utils.listening_youtube import (
     extract_youtube_id,
     get_youtube_transcript,
@@ -183,9 +183,10 @@ def show_ai_listening_generator():
 
 def show_material_management():
     st.markdown("### 📚 リスニング素材一覧")
-    for key, material in DEMO_LISTENING.items():
-        with st.expander(f"🎧 {material['title']} ({material['level']})"):
-            st.markdown(material['script'][:200] + "...")
+    materials = load_materials('listening')
+    for key, material in materials.items():
+        with st.expander(f"🎧 {material['title']} ({material.get('level', '')})"):
+            st.markdown((material.get('script', '') or '')[:200] + "...")
 
 
 def show_class_listening_progress():
@@ -465,11 +466,15 @@ def show_youtube_dictation(exercises):
 
 def show_listening_practice():
     st.markdown("### 🎧 リスニング練習")
-    options = {key: f"{data['title']} ({data['level']})" for key, data in DEMO_LISTENING.items()}
+    materials = load_materials('listening')
+    if not materials:
+        st.info("リスニング教材がありません")
+        return
+    options = {key: f"{data['title']} ({data.get('level', '')})" for key, data in materials.items()}
     selected = st.selectbox("素材", list(options.keys()), format_func=lambda x: options[x], key="listen_select")
     
     if selected:
-        material = DEMO_LISTENING[selected]
+        material = materials[selected]
         st.markdown(f"### {material['title']}")
         
         key = f"audio_{selected}"

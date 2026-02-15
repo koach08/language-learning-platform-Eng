@@ -5,6 +5,26 @@ from components.web_speech import text_to_speech_openai, play_audio_autoplay
 from utils.database import save_chat_session_full, get_student_chat_history
 import time
 
+
+def _get_course_id(user) -> str:
+    """course_idを複数ソースから解決"""
+    cid = st.session_state.get('submit_course_id')
+    if cid:
+        return cid
+    cid = st.session_state.get('current_course', {}).get('id')
+    if cid:
+        return cid
+    try:
+        from utils.database import get_student_enrollments
+        enrollments = get_student_enrollments(user['id'])
+        if enrollments:
+            course = enrollments[0].get('courses')
+            if course:
+                return course.get('id')
+    except Exception:
+        pass
+    return user.get('class_key')
+
 @require_auth
 def show():
     user = get_current_user()
@@ -337,7 +357,7 @@ def show_feedback_screen():
                     level=level,
                     feedback=feedback,
                     used_voice_input=used_voice,
-                    course_id=st.session_state.get('current_course', {}).get('id'),
+                    course_id=_get_course_id(user),
                     topic=topic_name,
                 )
                 st.session_state.chat_session_saved = True
