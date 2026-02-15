@@ -215,6 +215,17 @@ def show_teacher_view():
 def show_student_view(user):
     """学生用ビュー"""
     
+    # student_homeから課題提出に遷移した場合、直接課題提出を表示
+    if st.session_state.get('submit_assignment_id'):
+        show_assignment_submission(user)
+        if st.button("← Speaking トップに戻る"):
+            st.session_state.pop('submit_assignment_id', None)
+            st.session_state.pop('submit_assignment_title', None)
+            st.session_state.pop('submit_assignment_type', None)
+            st.session_state.pop('submit_course_id', None)
+            st.rerun()
+        return
+    
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📖 音読練習",
         "🤖 AIテキスト生成",
@@ -1137,12 +1148,6 @@ def show_assignment_submission(user):
     st.caption("教員から出された課題を提出します")
     
     course_id = _resolve_course_id()
-    
-    # デバッグ（確認後に削除）
-    if not course_id:
-        st.caption("⚠️ DEBUG: course_id が取得できていません")
-    else:
-        st.caption(f"🔍 DEBUG: course_id = {str(course_id)[:8]}...")
     
     # --- コースの課題一覧をDBから取得 ---
     assignments = []
