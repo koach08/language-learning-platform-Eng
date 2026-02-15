@@ -98,7 +98,18 @@ def show_student_list_with_profiles(course):
         col1, col2, col3, col4 = st.columns([2.5, 2, 1.5, 1])
 
         with col1:
-            st.markdown(f"**{name}**")
+            if st.button(f"**{name}**", key=f"name_{i}_{s.get('id', '')}",
+                         help="クリックでカルテを表示"):
+                st.session_state['selected_student'] = {
+                    'id': s.get('id', ''),
+                    'user_id': s.get('id', ''),
+                    'name': name,
+                    'email': email,
+                    'student_id': student_number,
+                    'profile': profile,
+                }
+                st.session_state['current_view'] = 'student_portfolio'
+                st.rerun()
             if student_number:
                 st.caption(f"学籍番号: {student_number}")
             else:

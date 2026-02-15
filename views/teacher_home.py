@@ -212,6 +212,7 @@ def show():
             db_students = get_course_students(selected_class['db_id'])
             st.session_state.class_students[selected_class_key] = [
                 {
+                    'id': s.get('id', ''),
                     'name': s.get('name', ''),
                     'email': s.get('email', ''),
                     'student_id': s.get('student_id', ''),
@@ -469,7 +470,20 @@ def show_recent_class_activity(class_key):
         with col1:
             st.caption(f"{i}")
         with col2:
-            st.markdown(f"**{s['name']}**")
+            if s.get('id'):
+                if st.button(f"**{s['name']}**", key=f"home_student_{i}_{s.get('id','')}",
+                             help="クリックでカルテを表示"):
+                    st.session_state['selected_student'] = {
+                        'id': s['id'],
+                        'user_id': s['id'],
+                        'name': s['name'],
+                        'email': s.get('email', ''),
+                        'student_id': s.get('student_id', ''),
+                    }
+                    st.session_state['current_view'] = 'student_portfolio'
+                    st.rerun()
+            else:
+                st.markdown(f"**{s['name']}**")
         with col3:
             st.caption(s.get('email', '') or s.get('student_id', ''))
 
@@ -482,9 +496,27 @@ def show_recent_class_activity(class_key):
             if submissions:
                 st.markdown("---")
                 st.markdown("#### 📝 最近の提出")
-                for s in submissions:
+                for j, s in enumerate(submissions):
                     u = s.get('users', {}) or {}
-                    st.markdown(f"- **{u.get('name', '?')}** — {s.get('module_type', '')} ({s.get('created_at', '')[:10]})")
+                    uid = u.get('id', '')
+                    uname = u.get('name', '?')
+                    module = s.get('module_type', '')
+                    date = s.get('created_at', '')[:10]
+                    col1, col2 = st.columns([2, 3])
+                    with col1:
+                        if uid:
+                            if st.button(f"📋 {uname}", key=f"sub_student_{j}_{uid}",
+                                         help="クリックでカルテを表示"):
+                                st.session_state['selected_student'] = {
+                                    'id': uid, 'user_id': uid,
+                                    'name': uname, 'email': u.get('email', ''),
+                                }
+                                st.session_state['current_view'] = 'student_portfolio'
+                                st.rerun()
+                        else:
+                            st.markdown(f"**{uname}**")
+                    with col2:
+                        st.caption(f"{module} ({date})")
             else:
                 st.caption("まだ提出物はありません")
         except Exception:
