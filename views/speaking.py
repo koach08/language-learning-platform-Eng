@@ -30,9 +30,11 @@ def _resolve_course_id() -> str:
     if cid:
         return cid
     # 2. current_course（従来パターン）
-    cid = _resolve_course_id()
-    if cid:
-        return cid
+    current_course = st.session_state.get('current_course')
+    if current_course and isinstance(current_course, dict):
+        cid = current_course.get('id')
+        if cid:
+            return cid
     # 3. DBからenrollments
     try:
         from utils.database import get_student_enrollments
@@ -1136,22 +1138,36 @@ def show_assignment_submission(user):
     
     course_id = _resolve_course_id()
     
+    # デバッグ（確認後に削除）
+    if not course_id:
+        st.caption("⚠️ DEBUG: course_id が取得できていません")
+    else:
+        st.caption(f"🔍 DEBUG: course_id = {str(course_id)[:8]}...")
+    
     # --- コースの課題一覧をDBから取得 ---
     assignments = []
     if course_id:
         try:
             assignments = get_course_assignments(course_id, published_only=True)
-        except Exception:
-            pass
+        except Exception as e:
+            st.warning(f"課題の取得エラー: {e}")
     
-    if not assignments:
-        st.info("現在、提出可能な課題はありません。")
+    # speaking課題のみフィルタ（writingやlistening課題を除外）
+    speaking_assignments = [
+        a for a in assignments
+        if (a.get('assignment_type') or '').startswith('speaking')
+    ]
+    
+    if not speaking_assignments:
+        st.info("現在、提出可能なスピーキング課題はありません。")
+        if not course_id:
+            st.caption("⚠️ コースIDが取得できていません。ホーム画面でクラスに登録済みか確認してください。")
         return
     
     # 課題選択
     selected = st.selectbox(
         "課題を選択",
-        assignments,
+        speaking_assignments,
         format_func=lambda a: f"📌 {a['title']} (締切: {(a.get('due_date') or '未設定')[:10]})"
     )
     
