@@ -41,7 +41,6 @@ assignments = safe_import("assignments")
 grades = safe_import("grades")
 learning_log = safe_import("learning_log")
 test_prep = safe_import("test_prep")
-material_manager = safe_import("material_manager")
 
 def get_student_enabled_modules(user):
     class_key = user.get("class_key")
@@ -101,9 +100,6 @@ if user:
                 st.rerun()
             if st.button("⚙️ 科目設定", use_container_width=True):
                 st.session_state["current_view"] = "course_settings"
-                st.rerun()
-            if st.button("📚 教材管理", use_container_width=True):
-                st.session_state["current_view"] = "material_manager"
                 st.rerun()
             st.markdown("---")
             st.markdown("#### 👁 プレビュー")
