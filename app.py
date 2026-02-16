@@ -197,7 +197,7 @@ def main():
     default_view = "teacher_home" if user["role"] == "teacher" else "student_home"
     view = st.session_state.get("current_view", default_view)
     teacher_only_views = ["teacher_home", "teacher_dashboard", "student_management",
-                          "assignments", "grades", "class_settings", "course_settings"]
+                          "assignments", "grades", "class_settings", "course_settings", "material_manager"]
     if user["role"] == "student" and view in teacher_only_views:
         view = "student_home"
     if view == "word_book":
