@@ -37,12 +37,10 @@ class_settings = safe_import("class_settings")
 teacher_dashboard = safe_import("teacher_dashboard")
 student_management = safe_import("student_management")
 student_portfolio = safe_import("student_portfolio")
-student_profile = safe_import("student_profile")
 assignments = safe_import("assignments")
 grades = safe_import("grades")
 learning_log = safe_import("learning_log")
 test_prep = safe_import("test_prep")
-material_manager = safe_import("material_manager")
 
 def get_student_enabled_modules(user):
     class_key = user.get("class_key")
@@ -100,11 +98,8 @@ if user:
             if st.button("🎓 クラス設定", use_container_width=True):
                 st.session_state["current_view"] = "class_settings"
                 st.rerun()
-        if st.button("⚙️ 科目設定", use_container_width=True):
+            if st.button("⚙️ 科目設定", use_container_width=True):
                 st.session_state["current_view"] = "course_settings"
-                st.rerun()
-            if st.button("📚 教材管理", use_container_width=True):
-                st.session_state["current_view"] = "material_manager"
                 st.rerun()
             st.markdown("---")
             st.markdown("#### 👁 プレビュー")
@@ -115,6 +110,9 @@ if user:
             if st.button("✏️ Writing", use_container_width=True):
                 st.session_state["current_view"] = "writing"
                 st.rerun()
+            if st.button("📚 Vocabulary", use_container_width=True):
+                st.session_state["current_view"] = "vocabulary"
+                st.rerun()
             if st.button("📖 Reading", use_container_width=True):
                 st.session_state["current_view"] = "reading"
                 st.rerun()
@@ -124,12 +122,9 @@ if user:
             if st.button("📝 検定対策", use_container_width=True):
                 st.session_state["current_view"] = "test_prep"
                 st.rerun()
-            if st.button("📚 Vocabulary", use_container_width=True):
-                st.session_state["current_view"] = "vocabulary"
-                st.rerun()
         else:
             st.markdown("#### 🎓 学習")
-            if st.button("🏠 ホーム", use_container_width=True, key="home_student"):
+            if st.button("🏠 ホーム", use_container_width=True):
                 st.session_state["current_view"] = "student_home"
                 st.rerun()
             if st.button("📖 マイ単語帳", use_container_width=True):
@@ -138,7 +133,7 @@ if user:
             if st.button("📊 学習分析", use_container_width=True):
                 st.session_state["current_view"] = "analytics"
                 st.rerun()
-            if st.button("💬 メッセージ", use_container_width=True, key="msg_student"):
+            if st.button("💬 メッセージ", use_container_width=True):
                 st.session_state["current_view"] = "messaging"
                 st.rerun()
             if st.button("📝 授業外学習ログ", use_container_width=True):
@@ -147,35 +142,32 @@ if user:
             if st.button("📋 マイポートフォリオ", use_container_width=True):
                 st.session_state["current_view"] = "student_portfolio"
                 st.rerun()
-            if st.button("👤 プロフィール編集", use_container_width=True):
-                st.session_state["current_view"] = "student_profile"
-                st.rerun()
             st.markdown("---")
             st.markdown("#### 📚 モジュール")
             enabled = get_student_enabled_modules(user)
             if "speaking" in enabled:
-                if st.button("🗣️ Speaking", use_container_width=True, key="speaking_student"):
+                if st.button("🗣️ Speaking", use_container_width=True):
                     st.session_state["current_view"] = "speaking"
                     st.rerun()
             if "writing" in enabled:
-                if st.button("✏️ Writing", use_container_width=True, key="writing_student"):
+                if st.button("✏️ Writing", use_container_width=True):
                     st.session_state["current_view"] = "writing"
                     st.rerun()
+            if "vocabulary" in enabled:
+                if st.button("📚 Vocabulary", use_container_width=True):
+                    st.session_state["current_view"] = "vocabulary"
+                    st.rerun()
             if "reading" in enabled:
-                if st.button("📖 Reading", use_container_width=True, key="reading_student"):
+                if st.button("📖 Reading", use_container_width=True):
                     st.session_state["current_view"] = "reading"
                     st.rerun()
             if "listening" in enabled:
-                if st.button("🎧 Listening", use_container_width=True, key="listening_student"):
+                if st.button("🎧 Listening", use_container_width=True):
                     st.session_state["current_view"] = "listening"
                     st.rerun()
             if "test_prep" in enabled:
-                if st.button("📝 検定対策", use_container_width=True, key="test_prep_student"):
+                if st.button("📝 検定対策", use_container_width=True):
                     st.session_state["current_view"] = "test_prep"
-                    st.rerun()
-            if "vocabulary" in enabled:
-                if st.button("📚 Vocabulary", use_container_width=True, key="vocab_student"):
-                    st.session_state["current_view"] = "vocabulary"
                     st.rerun()
             st.markdown("---")
             st.markdown("#### 📝 辞書")
@@ -200,9 +192,8 @@ def main():
         show_registration_form()
     default_view = "teacher_home" if user["role"] == "teacher" else "student_home"
     view = st.session_state.get("current_view", default_view)
- teacher_only_views = ["teacher_home", "teacher_dashboard", "student_management",
-                          "assignments", "grades", "class_settings", "course_settings",
-                          "material_manager"]
+    teacher_only_views = ["teacher_home", "teacher_dashboard", "student_management",
+                          "assignments", "grades", "class_settings", "course_settings"]
     if user["role"] == "student" and view in teacher_only_views:
         view = "student_home"
     if view == "word_book":
@@ -238,8 +229,6 @@ def main():
         "grades": grades.show if grades else teacher_home.show,
         "learning_log": learning_log.show if learning_log else student_home.show,
         "test_prep": test_prep.show if test_prep else student_home.show,
-        ""student_profile": student_profile.show if student_profile else student_home.show,
-        "material_manager": material_manager.show if material_manager else teacher_home.show,
     }
     views.get(view, student_home.show if user["role"] == "student" else teacher_home.show)()
 
