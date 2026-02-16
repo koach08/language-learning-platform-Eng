@@ -42,6 +42,7 @@ assignments = safe_import("assignments")
 grades = safe_import("grades")
 learning_log = safe_import("learning_log")
 test_prep = safe_import("test_prep")
+material_manager = safe_import("material_manager")
 
 def get_student_enabled_modules(user):
     class_key = user.get("class_key")
@@ -99,8 +100,11 @@ if user:
             if st.button("🎓 クラス設定", use_container_width=True):
                 st.session_state["current_view"] = "class_settings"
                 st.rerun()
-            if st.button("⚙️ 科目設定", use_container_width=True):
+        if st.button("⚙️ 科目設定", use_container_width=True):
                 st.session_state["current_view"] = "course_settings"
+                st.rerun()
+            if st.button("📚 教材管理", use_container_width=True):
+                st.session_state["current_view"] = "material_manager"
                 st.rerun()
             st.markdown("---")
             st.markdown("#### 👁 プレビュー")
@@ -196,8 +200,9 @@ def main():
         show_registration_form()
     default_view = "teacher_home" if user["role"] == "teacher" else "student_home"
     view = st.session_state.get("current_view", default_view)
-    teacher_only_views = ["teacher_home", "teacher_dashboard", "student_management",
-                          "assignments", "grades", "class_settings", "course_settings"]
+ teacher_only_views = ["teacher_home", "teacher_dashboard", "student_management",
+                          "assignments", "grades", "class_settings", "course_settings",
+                          "material_manager"]
     if user["role"] == "student" and view in teacher_only_views:
         view = "student_home"
     if view == "word_book":
@@ -233,7 +238,8 @@ def main():
         "grades": grades.show if grades else teacher_home.show,
         "learning_log": learning_log.show if learning_log else student_home.show,
         "test_prep": test_prep.show if test_prep else student_home.show,
-        "student_profile": student_profile.show if student_profile else student_home.show,
+        ""student_profile": student_profile.show if student_profile else student_home.show,
+        "material_manager": material_manager.show if material_manager else teacher_home.show,
     }
     views.get(view, student_home.show if user["role"] == "student" else teacher_home.show)()
 
