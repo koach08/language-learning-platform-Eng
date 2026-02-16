@@ -7,11 +7,9 @@ from datetime import datetime
 def show():
     user = get_current_user()
     st.markdown("## 📊 クラスダッシュボード")
-
     if st.button("← 教員ホームに戻る"):
         st.session_state['current_view'] = 'teacher_home'
         st.rerun()
-
     st.markdown("---")
 
     # クラス選択
@@ -23,7 +21,6 @@ def show():
     selected_class = st.session_state.get('selected_class', list(classes.keys())[0])
     if selected_class not in classes:
         selected_class = list(classes.keys())[0]
-
     current_class = classes[selected_class]
     course_id = current_class.get('db_id') or current_class.get('course_id')
 
@@ -63,7 +60,6 @@ def _load_class_students_batch(course_id: str) -> list:
     try:
         from utils.database import get_supabase_client
         from datetime import timedelta
-
         supabase = get_supabase_client()
 
         # 1. コースの学生一覧を取得（1クエリ）
@@ -108,11 +104,12 @@ def _load_class_students_batch(course_id: str) -> list:
         assignment_ids = [a['id'] for a in (assignments.data or [])]
 
         # 3. 全学生の提出を一括取得（1クエリ）
+        # NOTE: カラム名は "scores"（複数形）と "total_score"
         all_submissions = []
         if assignment_ids:
             for aid in assignment_ids:
                 subs = supabase.table('submissions')\
-                    .select('student_id, total_score, score')\
+                    .select('student_id, total_score, scores')\
                     .eq('assignment_id', aid)\
                     .in_('student_id', student_ids)\
                     .execute()
@@ -154,7 +151,14 @@ def _load_class_students_batch(course_id: str) -> list:
 
             scores = []
             for s in subs:
-                sc = s.get('total_score') or s.get('score') or 0
+                sc = s.get('total_score') or 0
+                # scores カラムが dict の場合、合計を算出
+                if sc == 0 and s.get('scores'):
+                    scores_data = s.get('scores')
+                    if isinstance(scores_data, dict):
+                        sc = sum(v for v in scores_data.values() if isinstance(v, (int, float)))
+                    elif isinstance(scores_data, (int, float)):
+                        sc = scores_data
                 if sc > 0:
                     scores.append(sc)
             info['avg_score'] = sum(scores) / len(scores) if scores else 0
@@ -192,6 +196,7 @@ def show_summary_metrics(students):
     st.markdown("### 📈 クラスサマリー")
 
     col1, col2, col3, col4 = st.columns(4)
+
     with col1:
         if students:
             scored = [s for s in students if s.get('avg_score', 0) > 0]
@@ -218,8 +223,7 @@ def show_summary_metrics(students):
                 with_subs = [s for s in students if s.get('submissions', 0) > 0]
                 if with_subs:
                     submit_rate = sum(
-                        min(s['submissions'] / total_a * 100, 100)
-                        for s in with_subs
+                        min(s['submissions'] / total_a * 100, 100) for s in with_subs
                     ) / len(students)
                     st.metric("課題提出率", f"{submit_rate:.0f}%")
                 else:
@@ -302,10 +306,11 @@ def show_assignment_status(course_id: str):
         for a in assignments:
             subs = get_assignment_submissions(a['id'])
             submitted = len(subs) if subs else 0
+
             scores = [
-                (s.get('total_score') or s.get('score') or 0)
+                (s.get('total_score') or 0)
                 for s in (subs or [])
-                if (s.get('total_score') or s.get('score'))
+                if s.get('total_score')
             ]
             avg = sum(scores) / len(scores) if scores else 0
 
