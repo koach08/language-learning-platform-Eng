@@ -27,7 +27,7 @@ from views import writing_submit as writing
 def safe_import(module_name):
     try:
         return __import__(f"views.{module_name}", fromlist=[module_name])
-    except (ImportError, SyntaxError, Exception):
+    except ImportError:
         return None
 
 speaking = safe_import("speaking")
@@ -41,17 +41,16 @@ assignments = safe_import("assignments")
 grades = safe_import("grades")
 learning_log = safe_import("learning_log")
 test_prep = safe_import("test_prep")
-material_manager = safe_import("material_manager")
 
 def get_student_enabled_modules(user):
     class_key = user.get("class_key")
     if not class_key:
-        return ["speaking", "writing", "reading", "listening", "vocabulary", "test_prep"]
+        return ["speaking", "writing", "vocabulary", "reading", "listening", "test_prep"]
     teacher_classes = st.session_state.get("teacher_classes", {})
     if class_key in teacher_classes:
         modules = teacher_classes[class_key].get("modules", {})
         return [k for k, v in modules.items() if v]
-    return ["speaking", "writing", "reading", "listening", "vocabulary", "test_prep"]
+    return ["speaking", "writing", "vocabulary", "reading", "listening", "test_prep"]
 
 user = get_current_user()
 
@@ -101,9 +100,6 @@ if user:
                 st.rerun()
             if st.button("⚙️ 科目設定", use_container_width=True):
                 st.session_state["current_view"] = "course_settings"
-                st.rerun()
-            if st.button("📚 教材管理", use_container_width=True):
-                st.session_state["current_view"] = "material_manager"
                 st.rerun()
             st.markdown("---")
             st.markdown("#### 👁 プレビュー")
@@ -197,7 +193,7 @@ def main():
     default_view = "teacher_home" if user["role"] == "teacher" else "student_home"
     view = st.session_state.get("current_view", default_view)
     teacher_only_views = ["teacher_home", "teacher_dashboard", "student_management",
-                          "assignments", "grades", "class_settings", "course_settings", "material_manager"]
+                          "assignments", "grades", "class_settings", "course_settings"]
     if user["role"] == "student" and view in teacher_only_views:
         view = "student_home"
     if view == "word_book":
@@ -233,7 +229,6 @@ def main():
         "grades": grades.show if grades else teacher_home.show,
         "learning_log": learning_log.show if learning_log else student_home.show,
         "test_prep": test_prep.show if test_prep else student_home.show,
-        "material_manager": material_manager.show if material_manager else teacher_home.show,
     }
     views.get(view, student_home.show if user["role"] == "student" else teacher_home.show)()
 
