@@ -1,9 +1,9 @@
 import streamlit as st
 from utils.auth import get_current_user, require_auth
 from utils.gamification import (
-    get_gamification_data, update_streak,
-    get_current_level, get_next_level, get_xp_progress,
-    get_weekly_challenges, show_gamification_dashboard, BADGES
+    get_gamification_data, update_streak, get_current_level,
+    get_next_level, get_xp_progress, get_weekly_challenges,
+    show_gamification_dashboard, BADGES
 )
 from datetime import datetime, timedelta
 
@@ -22,8 +22,10 @@ def show():
     st.markdown(f"## 🎓 学習ダッシュボード")
     st.markdown(f"ようこそ、{user['name']} さん")
 
+    # --- コース登録状態を確認（ただし表示はブロックしない） ---
     class_key = user.get('class_key')
     class_name = user.get('class_name')
+    is_enrolled = True
 
     if not class_key and not st.session_state.get('student_registered_classes'):
         # DBからenrollments確認
@@ -43,31 +45,9 @@ def show():
                 for c in enrolled_courses
             ]
         else:
-            st.warning("⚠️ クラスに登録されていません")
-            st.markdown("**クラスコードを入力して登録してください：**")
-            with st.form("enroll_form"):
-                code_input = st.text_input("クラスコード", placeholder="例: ENG1A2025")
-                enroll_btn = st.form_submit_button("📥 登録する", type="primary")
-                if enroll_btn and code_input.strip():
-                    try:
-                        from utils.database import get_course_by_class_code, enroll_student
-                        course = get_course_by_class_code(code_input.strip())
-                        if course:
-                            enroll_student(user['id'], course['id'])
-                            st.success(f"✅ 「{course['name']}」に登録しました！")
-                            st.cache_data.clear()
-                            import time
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.error("❌ そのクラスコードは見つかりません。先生に確認してください。")
-                    except Exception as e:
-                        if 'duplicate' in str(e).lower():
-                            st.warning("すでにこのクラスに登録済みです")
-                        else:
-                            st.error(f"登録エラー: {e}")
-            return
+            is_enrolled = False
 
+    # コース表示（登録済みの場合）
     if class_name:
         st.info(f"📚 **{class_name}**")
     elif st.session_state.get('student_registered_classes'):
@@ -86,7 +66,36 @@ def show():
 
     st.markdown("---")
 
+    # --- ★ 学習モジュールを最上部に配置 ---
     enabled_modules = get_enabled_modules(class_key)
+    show_learning_modules(enabled_modules)
+
+    # --- 未登録の場合: クラスコード登録（折りたたみ） ---
+    if not is_enrolled:
+        st.info("💡 **クラスに登録すると、課題の受け取りや成績の記録ができます。** 登録前でも各モジュールは自由に使えます。")
+        with st.expander("📥 クラスコードを入力して登録する"):
+            with st.form("enroll_form"):
+                code_input = st.text_input("クラスコード", placeholder="例: ENG1A2025")
+                enroll_btn = st.form_submit_button("📥 登録する", type="primary")
+
+                if enroll_btn and code_input.strip():
+                    try:
+                        from utils.database import get_course_by_class_code, enroll_student
+                        course = get_course_by_class_code(code_input.strip())
+                        if course:
+                            enroll_student(user['id'], course['id'])
+                            st.success(f"✅ 「{course['name']}」に登録しました！")
+                            st.cache_data.clear()
+                            import time
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("❌ そのクラスコードは見つかりません。先生に確認してください。")
+                    except Exception as e:
+                        if 'duplicate' in str(e).lower():
+                            st.warning("すでにこのクラスに登録済みです")
+                        else:
+                            st.error(f"登録エラー: {e}")
 
     # プロフィール概要
     show_profile_summary(user)
@@ -102,9 +111,6 @@ def show():
 
     # 今日のおすすめ
     show_recommendations(enabled_modules)
-
-    # 学習モジュール
-    show_learning_modules(enabled_modules)
 
     # 週間チャレンジ
     show_weekly_challenges()
@@ -220,8 +226,8 @@ def show_gamification_status_bar():
 def show_weekly_challenges():
     """週間チャレンジ表示"""
     st.markdown("### 🎯 今週のチャレンジ")
-    challenges = get_weekly_challenges()
 
+    challenges = get_weekly_challenges()
     if not challenges:
         st.info("チャレンジを読み込み中...")
         return
@@ -237,6 +243,7 @@ def show_weekly_challenges():
                 progress_val = min(challenge['current'] / challenge['target'], 1.0) if challenge['target'] > 0 else 0
                 st.progress(progress_val)
                 st.caption(f"{challenge['current']}/{challenge['target']}")
+
     st.markdown("---")
 
 
@@ -251,10 +258,10 @@ def get_enabled_modules(class_key):
 
 def show_learning_summary():
     st.markdown("### 📊 学習状況")
+
     try:
         from utils.analytics import get_analytics_data, estimate_cefr
         from utils.gamification import get_gamification_data
-
         adata = get_analytics_data()
         gdata = get_gamification_data()
 
@@ -304,6 +311,7 @@ def show_extracurricular_summary(user):
     today = datetime.now().date()
     start_of_week = today - timedelta(days=today.weekday())
     week_logs = [l for l in logs if datetime.strptime(l['date'], "%Y-%m-%d").date() >= start_of_week]
+
     total_minutes = sum(l['duration_minutes'] for l in week_logs)
     total_points = sum(l['points'] for l in week_logs)
     all_time_points = sum(l['points'] for l in logs)
@@ -342,6 +350,7 @@ def show_extracurricular_summary(user):
 
 def show_recommendations(enabled_modules):
     st.markdown("### 🎯 今日のおすすめ練習")
+
     all_recommendations = [
         {"module": "speaking", "task": "音読練習 10分", "icon": "🗣️", "reason": "発音スコア向上"},
         {"module": "vocabulary", "task": "単語フラッシュカード", "icon": "📚", "reason": "語彙力強化"},
@@ -349,6 +358,7 @@ def show_recommendations(enabled_modules):
         {"module": "writing", "task": "短文ライティング", "icon": "✍️", "reason": "表現力向上"},
         {"module": "reading", "task": "記事読解", "icon": "📖", "reason": "読解スピード向上"},
     ]
+
     recommendations = [r for r in all_recommendations if r['module'] in enabled_modules]
     for rec in recommendations[:3]:
         col1, col2 = st.columns([4, 1])
@@ -362,8 +372,9 @@ def show_recommendations(enabled_modules):
 
 
 def show_learning_modules(enabled_modules):
-    st.markdown("---")
     st.markdown("### 📚 学習モジュール")
+    st.caption("各モジュールをクリックして学習を始めましょう")
+
     all_modules = [
         {"key": "speaking", "icon": "🗣️", "name": "Speaking", "desc": "会話・発音"},
         {"key": "writing", "icon": "✍️", "name": "Writing", "desc": "ライティング"},
@@ -372,20 +383,24 @@ def show_learning_modules(enabled_modules):
         {"key": "vocabulary", "icon": "📚", "name": "Vocabulary", "desc": "語彙"},
         {"key": "test_prep", "icon": "📝", "name": "検定対策", "desc": "TOEFL/TOEIC"},
     ]
+
     modules = [m for m in all_modules if m['key'] in enabled_modules]
+
     if not modules:
         st.info("このクラスで有効なモジュールはまだ設定されていません")
         return
 
-    num_cols = min(len(modules), 5)
+    num_cols = min(len(modules), 3)
     cols = st.columns(num_cols)
     for i, mod in enumerate(modules):
         with cols[i % num_cols]:
             st.markdown(f"""
-            <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 10px;">
-            <h2 style="margin:0;">{mod['icon']}</h2>
-            <p style="margin:5px 0; font-weight: bold;">{mod['name']}</p>
-            <small style="color: #6c757d;">{mod['desc']}</small>
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 10px;
+                        text-align: center; margin-bottom: 10px;
+                        border: 1px solid #e9ecef;">
+                <h2 style="margin:0;">{mod['icon']}</h2>
+                <p style="margin:5px 0; font-weight: bold;">{mod['name']}</p>
+                <small style="color: #6c757d;">{mod['desc']}</small>
             </div>
             """, unsafe_allow_html=True)
             if st.button(f"開く", key=f"mod_{mod['key']}", use_container_width=True):
@@ -395,6 +410,8 @@ def show_learning_modules(enabled_modules):
     disabled_modules = [m for m in all_modules if m['key'] not in enabled_modules and m['key'] != 'test_prep']
     if disabled_modules:
         st.caption(f"※ このクラスでは一部のモジュールが無効になっています")
+
+    st.markdown("---")
 
 
 def _get_assignment_target_view(assignment_type: str) -> str:
@@ -439,7 +456,6 @@ def show_assignments_summary():
 
     # 全コースのcourse_idを取得
     course_ids = []
-
     # 1. セッションの登録クラスから
     registered = st.session_state.get('student_registered_classes', [])
     if registered:
@@ -464,7 +480,7 @@ def show_assignments_summary():
             pass
 
     if not course_ids:
-        st.info("コースに登録されていないため課題を表示できません")
+        st.info("クラスに登録すると、課題がここに表示されます。")
         return
 
     # 全コースの課題を統合取得
@@ -595,6 +611,7 @@ def show_recent_activity():
                     st.markdown("-")
 
     st.markdown("---")
+
     col1, col2 = st.columns(2)
     with col1:
         if st.button("📋 マイポートフォリオ"):
