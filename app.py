@@ -46,12 +46,12 @@ material_manager = safe_import("material_manager")
 def get_student_enabled_modules(user):
     class_key = user.get("class_key")
     if not class_key:
-        return ["speaking", "writing", "vocabulary", "reading", "listening", "test_prep"]
+        return ["speaking", "writing", "reading", "listening", "vocabulary", "test_prep"]
     teacher_classes = st.session_state.get("teacher_classes", {})
     if class_key in teacher_classes:
         modules = teacher_classes[class_key].get("modules", {})
         return [k for k, v in modules.items() if v]
-    return ["speaking", "writing", "vocabulary", "reading", "listening", "test_prep"]
+    return ["speaking", "writing", "reading", "listening", "vocabulary", "test_prep"]
 
 user = get_current_user()
 
