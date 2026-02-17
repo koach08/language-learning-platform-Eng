@@ -248,12 +248,16 @@ def show_weekly_challenges():
 
 
 def get_enabled_modules(class_key):
+    # 表示順序を固定（この順序でモジュールカードが並ぶ）
+    MODULE_ORDER = ["speaking", "writing", "reading", "listening", "vocabulary", "test_prep"]
+
     teacher_classes = st.session_state.get('teacher_classes', {})
     if class_key and class_key in teacher_classes:
         class_data = teacher_classes[class_key]
         modules = class_data.get('modules', {})
-        return [k for k, v in modules.items() if v]
-    return ["speaking", "writing", "vocabulary", "reading", "listening"]
+        enabled = {k for k, v in modules.items() if v}
+        return [m for m in MODULE_ORDER if m in enabled]
+    return MODULE_ORDER
 
 
 def show_learning_summary():

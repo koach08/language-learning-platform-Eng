@@ -4,12 +4,15 @@ Student Management (DB連携版)
 教員が学生をコースに追加・管理する画面。
 学習カルテ（ポートフォリオ）への遷移機能付き。
 """
-
 import streamlit as st
 from utils.auth import get_current_user, require_auth
 from utils.database import (
-    get_teacher_courses, get_course_students, get_all_students,
-    enroll_student, unenroll_student, get_course_by_class_code,
+    get_teacher_courses,
+    get_course_students,
+    get_all_students,
+    enroll_student,
+    unenroll_student,
+    get_course_by_class_code,
     get_course_student_profiles,
 )
 
@@ -17,7 +20,6 @@ from utils.database import (
 @require_auth
 def show():
     user = get_current_user()
-
     if user['role'] != 'teacher':
         st.error("教員のみアクセス可能です")
         return
@@ -35,10 +37,14 @@ def show():
         courses = get_teacher_courses(user['id'])
     except Exception as e:
         st.error(f"コース読み込みエラー: {e}")
-        return
+        courses = []
 
     if not courses:
         st.info("まだコースがありません。先にクラス設定でコースを作成してください。")
+        # コースがなくても全学生タブは表示
+        tab_all = st.tabs(["👤 全登録ユーザー"])
+        with tab_all[0]:
+            show_all_students_list(courses)
         return
 
     selected_course = st.selectbox(
@@ -52,13 +58,23 @@ def show():
 
     st.markdown(f"**クラスコード:** `{selected_course.get('class_code', 'なし')}` — このコードを学生に共有してください")
 
-    tab1, tab2, tab3 = st.tabs(["📋 学生一覧・カルテ", "➕ 学生を追加", "📊 クラス情報"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📋 学生一覧・カルテ",
+        "➕ 学生を追加",
+        "👤 全登録ユーザー",
+        "📊 クラス情報",
+    ])
 
     with tab1:
         show_student_list_with_profiles(selected_course)
+
     with tab2:
         show_add_student(selected_course)
+
     with tab3:
+        show_all_students_list(courses)
+
+    with tab4:
         show_class_info(selected_course)
 
 
@@ -163,6 +179,108 @@ def show_student_list_with_profiles(course):
         st.markdown("---")
 
 
+def show_all_students_list(courses):
+    """全登録ユーザー一覧（クラス未登録の学生も含む）"""
+    st.markdown("### 👤 全登録ユーザー")
+    st.caption("Googleログイン済みの全学生を表示します（クラス未登録の学生も含む）")
+
+    try:
+        all_students = get_all_students()
+    except Exception as e:
+        st.error(f"学生データの取得エラー: {e}")
+        return
+
+    if not all_students:
+        st.info("まだ学生がシステムに登録されていません。")
+        return
+
+    # 全コースの登録学生IDを収集
+    enrolled_map = {}  # student_id -> [course_name, ...]
+    for course in courses:
+        try:
+            enrolled = get_course_students(course['id'])
+            for s in enrolled:
+                sid = s.get('id', '')
+                if sid not in enrolled_map:
+                    enrolled_map[sid] = []
+                enrolled_map[sid].append(course.get('name', ''))
+        except Exception:
+            pass
+
+    # 未登録 / 登録済みに分類
+    not_enrolled = [s for s in all_students if s['id'] not in enrolled_map]
+    enrolled_students = [s for s in all_students if s['id'] in enrolled_map]
+
+    st.markdown(f"**全学生: {len(all_students)}名** （クラス登録済み: {len(enrolled_students)}名 / 未登録: {len(not_enrolled)}名）")
+
+    # 検索
+    search = st.text_input("🔍 検索（名前・メール）", key="all_student_search")
+
+    # フィルタ
+    filter_opt = st.radio("表示フィルタ", ["全て", "クラス未登録のみ", "クラス登録済みのみ"],
+                          horizontal=True, key="all_student_filter")
+
+    if filter_opt == "クラス未登録のみ":
+        display_list = not_enrolled
+    elif filter_opt == "クラス登録済みのみ":
+        display_list = enrolled_students
+    else:
+        display_list = all_students
+
+    for i, s in enumerate(display_list):
+        name = s.get('name', '不明')
+        email = s.get('email', '')
+        sid = s.get('id', '')
+
+        # 検索フィルタ
+        if search:
+            if search.lower() not in f"{name} {email}".lower():
+                continue
+
+        student_courses = enrolled_map.get(sid, [])
+        is_enrolled = len(student_courses) > 0
+
+        col1, col2, col3 = st.columns([3, 2, 1.5])
+
+        with col1:
+            st.markdown(f"**{name}**")
+            st.caption(email)
+
+        with col2:
+            if is_enrolled:
+                st.success(f"✅ {', '.join(student_courses)}")
+            else:
+                st.warning("⚠️ クラス未登録")
+
+        with col3:
+            if not is_enrolled and courses:
+                # 未登録の場合、コースに追加ボタン
+                if st.button("➕ 追加", key=f"add_all_{i}_{sid}", use_container_width=True):
+                    try:
+                        enroll_student(sid, courses[0]['id'])
+                        st.success(f"✅ {name} を {courses[0]['name']} に追加しました")
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as e:
+                        if 'duplicate' in str(e).lower():
+                            st.warning("すでに登録済みです")
+                        else:
+                            st.error(f"追加エラー: {e}")
+            elif is_enrolled:
+                if st.button("📋 カルテ", key=f"karte_all_{i}_{sid}", use_container_width=True):
+                    st.session_state['selected_student'] = {
+                        'id': sid,
+                        'user_id': sid,
+                        'name': name,
+                        'email': email,
+                    }
+                    st.session_state['current_view'] = 'student_portfolio'
+                    st.rerun()
+
+        if i < len(display_list) - 1:
+            st.markdown("---")
+
+
 def show_add_student(course):
     """学生をコースに追加"""
     st.markdown("### ➕ 学生を追加")
@@ -191,7 +309,6 @@ def show_add_student(course):
                 available,
                 format_func=lambda s: f"{s['name']} ({s.get('email', '')})",
             )
-
             if st.button("✅ 選択した学生を追加", type="primary") and selected_students:
                 added = 0
                 for s in selected_students:
@@ -216,10 +333,10 @@ def show_add_student(course):
     st.markdown("#### 方法2: クラスコードを共有")
     code = course.get('class_code', 'なし')
     st.markdown(f"""
-    学生に以下のクラスコードを共有してください。
-    学生はログイン後、ホーム画面でこのコードを入力して自分で登録できます。
-    
-    **クラスコード: `{code}`**
+学生に以下のクラスコードを共有してください。
+学生はログイン後、ホーム画面でこのコードを入力して自分で登録できます。
+
+**クラスコード: `{code}`**
     """)
 
 
