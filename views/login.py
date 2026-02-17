@@ -23,7 +23,7 @@ def show():
     """, unsafe_allow_html=True)
 
     st.markdown("<h1 style='text-align:center'>🎓 English Learning Platform</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; color:#666;'>北海道大学 英語学習プラットフォーム</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#666;'>英語学習プラットフォーム</p>", unsafe_allow_html=True)
     st.markdown("")
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
