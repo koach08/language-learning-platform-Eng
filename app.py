@@ -110,11 +110,11 @@ if user:
             if st.button("✏️ Writing", use_container_width=True):
                 st.session_state["current_view"] = "writing"
                 st.rerun()
-            if st.button("📚 Vocabulary", use_container_width=True):
-                st.session_state["current_view"] = "vocabulary"
-                st.rerun()
             if st.button("📖 Reading", use_container_width=True):
                 st.session_state["current_view"] = "reading"
+                st.rerun()
+            if st.button("📚 Vocabulary", use_container_width=True):
+                st.session_state["current_view"] = "vocabulary"
                 st.rerun()
             if st.button("🎧 Listening", use_container_width=True):
                 st.session_state["current_view"] = "listening"
@@ -153,13 +153,13 @@ if user:
                 if st.button("✏️ Writing", use_container_width=True):
                     st.session_state["current_view"] = "writing"
                     st.rerun()
-            if "vocabulary" in enabled:
-                if st.button("📚 Vocabulary", use_container_width=True):
-                    st.session_state["current_view"] = "vocabulary"
-                    st.rerun()
             if "reading" in enabled:
                 if st.button("📖 Reading", use_container_width=True):
                     st.session_state["current_view"] = "reading"
+                    st.rerun()
+            if "vocabulary" in enabled:
+                if st.button("📚 Vocabulary", use_container_width=True):
+                    st.session_state["current_view"] = "vocabulary"
                     st.rerun()
             if "listening" in enabled:
                 if st.button("🎧 Listening", use_container_width=True):
