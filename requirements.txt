@@ -31,6 +31,9 @@ Pillow>=10.0.0
 # Date/Time
 python-dateutil>=2.8.2
 
+# YouTube transcript
+youtube-transcript-api>=0.6.2
+
 # For audio format conversion (optional, needs ffmpeg)
 # ffmpeg-python>=0.2.0
 streamlit-javascript
