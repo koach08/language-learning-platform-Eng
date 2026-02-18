@@ -225,18 +225,16 @@ def show_class_listening_progress():
 
 # ==================== 学生用 ====================
 def show_student_view():
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📺 YouTube学習", "💡 トピック予習", "🎧 リスニング練習", "🤖 AI素材生成", "📊 学習記録"
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📺 YouTube学習", "🎧 リスニング練習", "🤖 AI素材生成", "📊 学習記録"
     ])
     with tab1:
         show_youtube_learning_student()
     with tab2:
-        show_topic_preparation()
-    with tab3:
         show_listening_practice()
-    with tab4:
+    with tab3:
         show_student_ai_generator()
-    with tab5:
+    with tab4:
         show_listening_progress()
 
 
@@ -667,58 +665,147 @@ def show_material_dictation(material, material_key):
     )
     
     sentence = sentences[idx]
-    
-    if st.button("🔊 再生", key=f"dict_play_{material_key}"):
+
+    st.info("💡 ① 音声を再生 → ② テキストボックスに入力 → ③「✅ チェック」ボタンを押す")
+
+    if st.button("🔊 音声を再生", type="primary", key=f"dict_play_{material_key}"):
         with st.spinner("生成中..."):
             audio = generate_audio_with_openai(sentence)
         if audio:
             st.session_state[f"dict_audio_{material_key}_{idx}"] = audio
             st.rerun()
-    
+
     audio_key = f"dict_audio_{material_key}_{idx}"
     if audio_key in st.session_state:
         st.audio(st.session_state[audio_key], format='audio/mp3')
-    
-    user_input = st.text_area("聞こえた通りに書き取ってください", height=80, key=f"dict_input_{material_key}_{idx}")
-    
-    if user_input and st.button("✅ チェック", type="primary", key=f"dict_check_{material_key}_{idx}"):
-        result = check_dictation(sentence, user_input)
-        if result.get("success"):
-            accuracy = result.get('accuracy_percentage', 0)
-            st.metric("正確さ", f"{accuracy}%")
-            with st.expander("正解を確認"):
-                st.markdown(f"**{sentence}**")
+        st.caption("↑ 何度でも再生できます")
+
+    user_input = st.text_area(
+        "② 聞こえた通りに入力してください（Enterは改行になります）",
+        height=80,
+        key=f"dict_input_{material_key}_{idx}"
+    )
+
+    if st.button("✅ チェック", type="primary", key=f"dict_check_{material_key}_{idx}"):
+        if not user_input.strip():
+            st.warning("テキストを入力してからチェックしてください")
+        else:
+            result = check_dictation(sentence, user_input)
+            if result.get("success"):
+                accuracy = result.get('accuracy_percentage', 0)
+                st.metric("正確さ", f"{accuracy}%")
+                if accuracy == 100:
+                    st.success("🎉 完璧です！")
+                elif accuracy >= 80:
+                    st.success("✅ よくできました！")
+                else:
+                    st.info("💪 もう一度聞いてみましょう")
+                if result.get('feedback'):
+                    st.info(f"💬 {result.get('feedback')}")
+                with st.expander("正解を確認"):
+                    st.markdown(f"**{sentence}**")
 
 
 def show_student_ai_generator():
     st.markdown("### 🤖 AI素材生成")
     st.caption("トピックを入力してボタンを押すと、リスニング素材を生成します")
-    
+
     prompt = st.text_area("トピック", placeholder="例: 友人との会話", height=80, key="s_ai_prompt")
     level = st.select_slider("レベル", ["A2", "B1", "B2"], value="B1", key="s_ai_level")
-    
+
     if st.button("🚀 生成", type="primary", disabled=not prompt, key="s_ai_gen"):
         with st.spinner("生成中..."):
             result = generate_listening_from_prompt(prompt, level, "short")
         if result.get("success"):
             st.session_state['s_listening'] = result
+            # 音声・ディクテーションのキャッシュをクリア
+            for k in ['s_ai_audio_data', 's_ai_dict_audio', 's_ai_dict_input']:
+                if k in st.session_state:
+                    del st.session_state[k]
             st.success("完了！")
-    
+
     if 's_listening' in st.session_state:
         data = st.session_state['s_listening']
         st.markdown(f"### {data.get('title', '')}")
-        with st.expander("📜 スクリプト"):
+
+        # 練習モード選択
+        practice_mode = st.radio(
+            "練習方法",
+            ["script", "audio", "dictation"],
+            format_func=lambda x: {
+                "script": "📜 スクリプトを確認",
+                "audio": "🔊 音声を聞く",
+                "dictation": "✏️ ディクテーション"
+            }[x],
+            horizontal=True,
+            key="s_ai_mode"
+        )
+
+        if practice_mode == "script":
             st.markdown(data.get('script', ''))
-        
-        if st.button("🔊 音声を生成", key="s_ai_audio"):
-            with st.spinner("音声生成中..."):
-                audio = generate_audio_with_openai(data.get('script', ''))
-            if audio:
-                st.session_state['s_ai_audio_data'] = audio
-                st.rerun()
-        
-        if 's_ai_audio_data' in st.session_state:
-            st.audio(st.session_state['s_ai_audio_data'], format='audio/mp3')
+
+        elif practice_mode == "audio":
+            if st.button("🔊 音声を生成", key="s_ai_audio_btn"):
+                with st.spinner("音声生成中..."):
+                    audio = generate_audio_with_openai(data.get('script', ''))
+                if audio:
+                    st.session_state['s_ai_audio_data'] = audio
+                    st.rerun()
+            if 's_ai_audio_data' in st.session_state:
+                st.audio(st.session_state['s_ai_audio_data'], format='audio/mp3')
+
+        elif practice_mode == "dictation":
+            script = data.get('script', '')
+            sentences = [s.strip() for s in script.replace('\n', ' ').split('.') if len(s.strip()) > 10]
+
+            if not sentences:
+                st.warning("ディクテーション用のテキストがありません")
+            else:
+                idx = st.selectbox(
+                    "練習する文を選択",
+                    range(min(len(sentences), 5)),
+                    format_func=lambda i: f"文 {i+1}",
+                    key="s_ai_dict_sent"
+                )
+                sentence = sentences[idx]
+
+                st.info("💡 ① 音声を再生 → ② テキストボックスに入力 → ③「✅ チェック」ボタンを押す")
+
+                if st.button("🔊 音声を再生", type="primary", key="s_ai_dict_play"):
+                    with st.spinner("生成中..."):
+                        audio = generate_audio_with_openai(sentence)
+                    if audio:
+                        st.session_state[f's_ai_dict_audio_{idx}'] = audio
+                        st.rerun()
+
+                if f's_ai_dict_audio_{idx}' in st.session_state:
+                    st.audio(st.session_state[f's_ai_dict_audio_{idx}'], format='audio/mp3')
+                    st.caption("↑ 何度でも再生できます")
+
+                user_input = st.text_area(
+                    "② 聞こえた通りに入力してください（Enterは改行になります）",
+                    height=80,
+                    key=f"s_ai_dict_input_{idx}"
+                )
+
+                if st.button("✅ チェック", type="primary", key=f"s_ai_dict_check_{idx}"):
+                    if not user_input.strip():
+                        st.warning("テキストを入力してからチェックしてください")
+                    else:
+                        result = check_dictation(sentence, user_input)
+                        if result.get("success"):
+                            accuracy = result.get('accuracy_percentage', 0)
+                            st.metric("正確さ", f"{accuracy}%")
+                            if accuracy == 100:
+                                st.success("🎉 完璧です！")
+                            elif accuracy >= 80:
+                                st.success("✅ よくできました！")
+                            else:
+                                st.info("💪 もう一度聞いてみましょう")
+                            if result.get('feedback'):
+                                st.info(f"💬 {result.get('feedback')}")
+                            with st.expander("正解を確認"):
+                                st.markdown(f"**{sentence}**")
 
 
 def show_listening_progress():
