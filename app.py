@@ -32,8 +32,7 @@ from views import writing_submit as writing
 def safe_import(module_name):
     try:
         return __import__(f"views.{module_name}", fromlist=[module_name])
-    except Exception as e:
-        st.warning(f"⚠️ モジュール '{module_name}' の読み込みに失敗: {e}")
+    except ImportError:
         return None
 
 
@@ -59,6 +58,44 @@ def get_student_enabled_modules(user):
         modules = teacher_classes[class_key].get("modules", {})
         return [k for k, v in modules.items() if v]
     return ["speaking", "writing", "vocabulary", "reading", "listening", "test_prep"]
+
+
+def _show_student_nav(user):
+    """学生用モジュールナビ（学生・pending_teacher共通）"""
+    st.markdown("---")
+    st.markdown("#### 📚 モジュール")
+    enabled = get_student_enabled_modules(user)
+    if "speaking" in enabled:
+        if st.button("🗣️ Speaking", use_container_width=True, key="nav_speaking"):
+            st.session_state["current_view"] = "speaking"
+            st.rerun()
+    if "writing" in enabled:
+        if st.button("✏️ Writing", use_container_width=True, key="nav_writing"):
+            st.session_state["current_view"] = "writing"
+            st.rerun()
+    if "reading" in enabled:
+        if st.button("📖 Reading", use_container_width=True, key="nav_reading"):
+            st.session_state["current_view"] = "reading"
+            st.rerun()
+    if "listening" in enabled:
+        if st.button("🎧 Listening", use_container_width=True, key="nav_listening"):
+            st.session_state["current_view"] = "listening"
+            st.rerun()
+    if "test_prep" in enabled:
+        if st.button("📝 検定対策", use_container_width=True, key="nav_test_prep"):
+            st.session_state["current_view"] = "test_prep"
+            st.rerun()
+
+    st.markdown("---")
+    st.markdown("#### 📝 辞書・語彙")
+    if st.button("📚 Vocabulary", use_container_width=True, key="sidebar_vocab"):
+        st.session_state["current_view"] = "vocabulary"
+        st.rerun()
+    try:
+        from utils.dictionary import show_dictionary_popup
+        show_dictionary_popup(word_key="sidebar_dict")
+    except Exception:
+        st.info("辞書機能を読み込み中...")
 
 
 user = get_current_user()
@@ -226,43 +263,6 @@ if user:
         if st.button("🚪 ログアウト", use_container_width=True):
             logout()
 
-
-def _show_student_nav(user):
-    """学生用モジュールナビ（学生・pending_teacher共通）"""
-    st.markdown("---")
-    st.markdown("#### 📚 モジュール")
-    enabled = get_student_enabled_modules(user)
-    if "speaking" in enabled:
-        if st.button("🗣️ Speaking", use_container_width=True, key="nav_speaking"):
-            st.session_state["current_view"] = "speaking"
-            st.rerun()
-    if "writing" in enabled:
-        if st.button("✏️ Writing", use_container_width=True, key="nav_writing"):
-            st.session_state["current_view"] = "writing"
-            st.rerun()
-    if "reading" in enabled:
-        if st.button("📖 Reading", use_container_width=True, key="nav_reading"):
-            st.session_state["current_view"] = "reading"
-            st.rerun()
-    if "listening" in enabled:
-        if st.button("🎧 Listening", use_container_width=True, key="nav_listening"):
-            st.session_state["current_view"] = "listening"
-            st.rerun()
-    if "test_prep" in enabled:
-        if st.button("📝 検定対策", use_container_width=True, key="nav_test_prep"):
-            st.session_state["current_view"] = "test_prep"
-            st.rerun()
-
-    st.markdown("---")
-    st.markdown("#### 📝 辞書・語彙")
-    if st.button("📚 Vocabulary", use_container_width=True, key="sidebar_vocab"):
-        st.session_state["current_view"] = "vocabulary"
-        st.rerun()
-    try:
-        from utils.dictionary import show_dictionary_popup
-        show_dictionary_popup(word_key="sidebar_dict")
-    except Exception:
-        st.info("辞書機能を読み込み中...")
 
 
 def main():

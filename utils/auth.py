@@ -230,3 +230,39 @@ def init_session():
         st.session_state.user = None
     if "current_view" not in st.session_state:
         st.session_state.current_view = None
+
+
+def get_pending_teachers() -> list:
+    """pending_teacherロールのユーザー一覧を返す"""
+    try:
+        from utils.database import get_supabase_client
+        supabase = get_supabase_client()
+        result = supabase.table("users").select("*").eq("role", "pending_teacher").execute()
+        return result.data or []
+    except Exception as e:
+        st.warning(f"教員申請一覧の取得に失敗しました: {e}")
+        return []
+
+
+def approve_teacher(user_id: str) -> bool:
+    """ユーザーを教員として承認する"""
+    try:
+        from utils.database import get_supabase_client
+        supabase = get_supabase_client()
+        supabase.table("users").update({"role": "teacher"}).eq("id", user_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"承認エラー: {e}")
+        return False
+
+
+def reject_teacher(user_id: str) -> bool:
+    """教員申請を却下してstudentに戻す"""
+    try:
+        from utils.database import get_supabase_client
+        supabase = get_supabase_client()
+        supabase.table("users").update({"role": "student"}).eq("id", user_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"却下エラー: {e}")
+        return False
