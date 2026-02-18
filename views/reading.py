@@ -136,6 +136,8 @@ def show_questions_preview(data):
                     st.markdown(f"- {opt}")
             
             st.info(f"💡 {q.get('explanation', '')}")
+            if q.get('text_evidence'):
+                st.caption(f"📄 本文の根拠 / Text evidence: 『{q.get('text_evidence')}』")
 
 
 def show_article_management():
@@ -419,6 +421,8 @@ def show_comprehension_quiz(data):
             st.markdown(f"Your answer: {user_answer}")
             st.markdown(f"Correct answer: {q.get('correct')}")
             st.info(f"💡 {q.get('explanation', '')}")
+            if q.get('text_evidence'):
+                st.caption(f"📄 本文の根拠 / Text evidence: 『{q.get('text_evidence')}』")
             st.markdown("---")
         
         # スコア

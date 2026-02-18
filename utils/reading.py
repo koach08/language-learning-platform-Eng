@@ -58,53 +58,79 @@ Many companies are now adopting "hybrid" models, where employees work some days 
 
 
 def generate_comprehension_questions(text, title, num_questions=5, level="B1"):
-    """読解問題を生成"""
-    
+    """読解問題を生成（測定理論に基づく高品質版）"""
+
     client = get_openai_client()
-    
-    prompt = f"""Based on this article, create reading comprehension questions for a Japanese English learner (Level: {level}).
+
+    prompt = f"""You are an expert EFL test designer following best practices in language assessment (CEFR Level: {level}).
 
 Article Title: {title}
 Article Text:
 {text}
 
-Generate {num_questions} questions in JSON format:
+==============================
+MANDATORY DESIGN RULES — follow strictly:
+
+1. PARAPHRASE REQUIRED
+   - The correct answer must NOT copy words/phrases directly from the article.
+   - Rephrase using synonyms or different sentence structures.
+   - This prevents students from answering by simple keyword matching.
+
+2. PLAUSIBLE DISTRACTORS
+   - Each wrong option must be believable to someone who skimmed or half-read the article.
+   - Wrong options may use words FROM the article but in incorrect combinations.
+   - Do NOT include obviously absurd or grammatically broken options.
+
+3. ONE CLEARLY CORRECT ANSWER
+   - Avoid questions where multiple options could be defended.
+   - For inference questions: the answer must follow ONLY from the article content, not from general knowledge.
+
+4. NO COMMON-KNOWLEDGE ANSWERS
+   - Every question must require actually reading this specific text to answer correctly.
+
+==============================
+QUESTION TYPE DISTRIBUTION (strictly follow this ratio):
+  - 1 question  → main_idea             : What is the overall message/purpose of the article?
+  - 2 questions → detail                : Explicitly stated in the text, but answer must be PARAPHRASED
+  - 1 question  → inference             : Implied but not directly stated; requires reading between the lines
+  - 1 question  → vocabulary_in_context : Meaning of a word/phrase as used in THIS article
+
+TYPE-SPECIFIC RULES:
+  detail      : Correct answer paraphrases the text. Wrong options use article words in wrong context.
+  inference   : Must NOT be answerable from common knowledge alone. Base reasoning on specific content.
+  vocabulary  : Ask about a word with a non-obvious contextual meaning. Distractors = other common meanings.
+
+==============================
+Generate {num_questions} questions in this JSON format:
 {{
     "questions": [
         {{
             "question": "<Question in English>",
             "question_ja": "<日本語訳>",
-            "type": "<main_idea / detail / inference / vocabulary>",
+            "type": "<main_idea|detail|inference|vocabulary_in_context>",
             "options": ["<A>", "<B>", "<C>", "<D>"],
-            "correct": "<Correct option>",
-            "explanation": "<Why this is correct / 正解の理由 - bilingual>"
+            "correct": "<Exact text of correct option>",
+            "explanation": "<EN: Why this is correct and why others are wrong. JA: 正解の理由と他の選択肢が間違いな理由>",
+            "text_evidence": "<Short quote from the article that supports the correct answer>"
         }}
     ]
-}}
-
-Include:
-- 1-2 main idea questions
-- 2-3 detail questions  
-- 1 inference question
-- 1 vocabulary in context question
-
-Make options challenging but fair. All options should be plausible."""
+}}"""
 
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a reading comprehension expert. Create questions for Japanese English learners. Respond in valid JSON."},
+                {"role": "system", "content": "You are an expert EFL reading test designer. Follow the design rules exactly. Respond in valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
+            temperature=0.5,
             response_format={"type": "json_object"}
         )
-        
+
         result = json.loads(response.choices[0].message.content)
         result["success"] = True
         return result
-        
+
     except Exception as e:
         return {"success": False, "error": str(e)}
 
