@@ -2,17 +2,19 @@ import streamlit as st
 
 
 def record_audio(key="mic_recorder", text="🎤 マイクで録音 / Record"):
-    """ブラウザマイクで録音し、音声バイトを返す。
+    """ブラウザマイクで録音し、UploadedFileオブジェクトを返す。
     st.audio_input（Streamlit標準）を使用 — 外部コンポーネント不要。
     """
     audio = st.audio_input(text, key=key)
-    if audio is not None:
-        return audio.read()
-    return None
+    return audio  # UploadedFileオブジェクトをそのまま返す（.nameあり）
 
 
 def show_mic_or_upload(key_prefix="audio", allow_upload=True):
-    """マイク録音 or ファイルアップロードの選択UI"""
+    """マイク録音 or ファイルアップロードの選択UI
+    
+    戻り値: UploadedFileオブジェクト（.name, .read()が使える）
+            または bytes（後方互換のため）
+    """
 
     input_method = st.radio(
         "入力方法 / Input method",
@@ -21,7 +23,7 @@ def show_mic_or_upload(key_prefix="audio", allow_upload=True):
         key=f"{key_prefix}_method"
     )
 
-    audio_bytes = None
+    audio_file = None
 
     if input_method == "🎤 マイクで録音":
 
@@ -42,16 +44,17 @@ def show_mic_or_upload(key_prefix="audio", allow_upload=True):
         mic_key = f"{key_prefix}_mic_v{st.session_state[reset_key]}"
         new_audio = record_audio(key=mic_key)
 
-        if new_audio:
-            if new_audio != st.session_state.get(saved_audio_key):
-                with st.spinner("⏳ 録音データを処理しています..."):
-                    st.session_state[saved_audio_key] = new_audio
+        if new_audio is not None:
+            st.session_state[saved_audio_key] = new_audio
 
-        audio_bytes = st.session_state.get(saved_audio_key)
+        audio_file = st.session_state.get(saved_audio_key)
 
-        if audio_bytes:
+        if audio_file is not None:
             st.success("✅ 録音完了！ 下のプレーヤーで確認できます")
-            st.audio(audio_bytes, format="audio/wav")
+            # 再生用にバイトを読んでも、audio_fileオブジェクトはseekで戻せる
+            audio_file.seek(0)
+            st.audio(audio_file.read(), format="audio/wav")
+            audio_file.seek(0)
 
             if st.button("🔄 やり直す / Record again", key=f"{key_prefix}_retry_{st.session_state[reset_key]}"):
                 st.session_state[reset_key] += 1
@@ -74,8 +77,9 @@ def show_mic_or_upload(key_prefix="audio", allow_upload=True):
             key=f"{key_prefix}_upload"
         )
         if uploaded:
-            audio_bytes = uploaded.read()
-            st.audio(audio_bytes)
+            audio_file = uploaded
+            st.audio(uploaded.read())
+            uploaded.seek(0)
             st.success("✅ ファイル読み込み完了！")
 
-    return audio_bytes
+    return audio_file  # UploadedFileオブジェクトを返す

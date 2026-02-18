@@ -748,8 +748,8 @@ def show_practice_interface(material, user):
                 key=f"audio_{material['id']}"
             )
             if uploaded_audio:
-                audio_bytes = uploaded_audio.read()
-                st.audio(audio_bytes)
+                audio_bytes = uploaded_audio  # UploadedFileオブジェクトのまま渡す
+                st.audio(uploaded_audio.read()); uploaded_audio.seek(0)
 
         if audio_bytes:
             if st.button("📊 評価する", type="primary", key=f"eval_{material['id']}"):
@@ -969,8 +969,8 @@ def _show_sentence_by_sentence_practice(material, user):
             key=f"sbs_upload_{mat_id}_{idx}"
         )
         if uploaded:
-            audio_bytes = uploaded.read()
-            st.audio(audio_bytes)
+            audio_bytes = uploaded  # UploadedFileオブジェクトのまま渡す
+            st.audio(uploaded.read()); uploaded.seek(0)
 
     # --- ③ 採点 ---
     if audio_bytes:
