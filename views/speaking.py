@@ -254,7 +254,17 @@ def show_reading_aloud_practice(user):
     
     st.markdown("### 📖 音読練習")
     st.caption("テキストを見ながら声に出して読む練習です")
-    
+
+    # AIテキスト生成タブから「このテキストで練習」で遷移した場合
+    if st.session_state.get('practice_material'):
+        material = st.session_state['practice_material']
+        st.success(f"✅ AIテキスト「{material['title']}」で練習します")
+        if st.button("← 教材選択に戻る", key="back_from_ai_practice"):
+            del st.session_state['practice_material']
+            st.rerun()
+        show_practice_interface(material, user)
+        return
+
     # 教材選択方法
     source = st.radio(
         "教材を選択",
@@ -587,11 +597,24 @@ def show_ai_text_generation(user):
                 if text_data.get('tips'):
                     st.info(f"💡 {text_data['tips']}")
                 
+                # TTS音声読み上げ
+                try:
+                    from utils.tts_natural import show_tts_player
+                    show_tts_player(text_data['text'], key_prefix=f"ai_tts_{i}")
+                except Exception:
+                    pass
+
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("🎤 このテキストで練習", key=f"practice_{i}", use_container_width=True):
-                        st.session_state['practice_text'] = text_data
-                        st.session_state['current_tab'] = 0  # 音読練習タブへ
+                        st.session_state['practice_material'] = {
+                            "id": f"ai_{text_data['id']}",
+                            "title": text_data['title'],
+                            "level": text_data.get('level', 'AI Generated'),
+                            "duration": f"約{len(text_data['text'].split()) // 100 + 1}分",
+                            "text": text_data['text'],
+                            "tips": text_data.get('tips', '')
+                        }
                         st.rerun()
                 with col2:
                     if st.button("🗑️ 削除", key=f"delete_{i}", use_container_width=True):
