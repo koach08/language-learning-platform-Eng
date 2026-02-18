@@ -239,6 +239,10 @@ def show():
     # 最近の活動
     show_recent_class_activity(selected_class_key)
 
+    # 教員申請の承認（管理者用）
+    st.markdown("---")
+    show_pending_teacher_approvals()
+
 
 # ============================================================
 # サブ関数（既存ロジックをほぼ維持）
@@ -521,3 +525,44 @@ def show_recent_class_activity(class_key):
                 st.caption("まだ提出物はありません")
         except Exception:
             st.caption("まだ提出物はありません")
+
+
+# ============================================================
+# 教員申請の承認UI（管理者＝teacher向け）
+# ============================================================
+
+def show_pending_teacher_approvals():
+    """pending_teacher ロールのユーザーを一覧表示し、承認/却下できる。"""
+    from utils.auth import get_pending_teachers, approve_teacher, reject_teacher
+
+    pending = get_pending_teachers()
+
+    if not pending:
+        return  # 申請がなければ何も表示しない
+
+    st.markdown("### 👨‍🏫 教員登録申請")
+    st.caption(f"承認待ち: {len(pending)}件")
+
+    for p in pending:
+        name = p.get("name", "不明")
+        email = p.get("email", "")
+        reason = p.get("teacher_request_reason", "（理由なし）")
+        uid = p.get("id", "")
+
+        with st.expander(f"📋 {name}（{email}）"):
+            st.markdown(f"**申請理由:** {reason}")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ 承認", key=f"approve_{uid}", use_container_width=True, type="primary"):
+                    if approve_teacher(uid):
+                        st.success(f"{name} を教員として承認しました")
+                        st.rerun()
+                    else:
+                        st.error("承認に失敗しました")
+            with col2:
+                if st.button("❌ 却下", key=f"reject_{uid}", use_container_width=True):
+                    if reject_teacher(uid):
+                        st.warning(f"{name} の申請を却下しました")
+                        st.rerun()
+                    else:
+                        st.error("却下に失敗しました")

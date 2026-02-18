@@ -8,7 +8,11 @@ st.set_page_config(
 )
 
 from utils.auth import (
-    get_current_user, logout, handle_oauth_callback,
+    get_current_user,
+    logout,
+    handle_oauth_callback,
+    is_preview_mode,
+    switch_back_to_teacher,
 )
 
 # OAuth callback handling
@@ -24,11 +28,13 @@ from views import login, teacher_home, student_home
 from views import vocabulary, reading, listening
 from views import writing_submit as writing
 
+
 def safe_import(module_name):
     try:
         return __import__(f"views.{module_name}", fromlist=[module_name])
     except ImportError:
         return None
+
 
 speaking = safe_import("speaking")
 speaking_chat = safe_import("speaking_chat")
@@ -42,6 +48,7 @@ grades = safe_import("grades")
 learning_log = safe_import("learning_log")
 test_prep = safe_import("test_prep")
 
+
 def get_student_enabled_modules(user):
     class_key = user.get("class_key")
     if not class_key:
@@ -52,27 +59,81 @@ def get_student_enabled_modules(user):
         return [k for k, v in modules.items() if v]
     return ["speaking", "writing", "vocabulary", "reading", "listening", "test_prep"]
 
+
 user = get_current_user()
 
 if user:
     with st.sidebar:
+
+        # ============================================================
+        # ① プレビューモードバナー（最上部）
+        # ============================================================
+        if is_preview_mode():
+            st.markdown("""
+            <div style='background:#fff3cd;border:1px solid #ffc107;border-radius:8px;
+                        padding:10px;margin-bottom:8px;text-align:center;'>
+                👁 <b>学生プレビューモード</b>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("🔙 教員ビューに戻る", use_container_width=True, type="primary"):
+                switch_back_to_teacher()
+            st.markdown("---")
+
+        # ============================================================
+        # ② 教員のロール切り替えボタン（プレビューでない教員のみ）
+        # ============================================================
+        elif user["role"] == "teacher":
+            with st.expander("👁 学生ビューで確認", expanded=False):
+                st.caption("担当コースを学生として確認できます")
+                # コース一覧を取得
+                classes = st.session_state.get("teacher_classes", {})
+                if classes:
+                    course_options = {k: v["name"] for k, v in classes.items()}
+                    selected_preview_course = st.selectbox(
+                        "コースを選択",
+                        list(course_options.keys()),
+                        format_func=lambda x: course_options[x],
+                        key="preview_course_select",
+                    )
+                    if st.button("🎓 このコースを学生として見る", use_container_width=True):
+                        from utils.auth import switch_to_student_view
+                        switch_to_student_view(selected_preview_course)
+                else:
+                    st.caption("コースが読み込まれていません。ホーム画面を開いてください。")
+                    if st.button("🎓 学生ビューで確認", use_container_width=True):
+                        from utils.auth import switch_to_student_view
+                        switch_to_student_view()
+            st.markdown("---")
+
+        # ============================================================
+        # ③ ユーザー情報表示
+        # ============================================================
         st.markdown(f"### 👤 {user['name']}")
         if user["role"] == "teacher":
             st.caption("👨‍🏫 教員")
+        elif user["role"] == "pending_teacher":
+            st.caption("⏳ 教員申請中")
         else:
             st.caption("🎓 学生")
-            if user.get("class_name"):
-                st.caption(f"📚 {user['class_name']}")
-            try:
-                from utils.gamification import get_gamification_data, update_streak, get_current_level
-                update_streak()
-                gdata = get_gamification_data()
-                glevel = get_current_level(gdata["total_xp"])
-                streak = gdata["current_streak"]
-                st.markdown(f"**{glevel['icon']} Lv.{glevel['level']}** | ⭐{gdata['total_xp']} XP | 🔥{streak}日")
-            except Exception:
-                pass
+
+        if user.get("class_name"):
+            st.caption(f"📚 {user['class_name']}")
+
+        try:
+            from utils.gamification import get_gamification_data, update_streak, get_current_level
+            update_streak()
+            gdata = get_gamification_data()
+            glevel = get_current_level(gdata["total_xp"])
+            streak = gdata["current_streak"]
+            st.markdown(f"**{glevel['icon']} Lv.{glevel['level']}** | ⭐{gdata['total_xp']} XP | 🔥{streak}日")
+        except Exception:
+            pass
+
         st.markdown("---")
+
+        # ============================================================
+        # ④ ナビゲーション
+        # ============================================================
         if user["role"] == "teacher":
             st.markdown("#### 📊 管理")
             if st.button("🏠 ホーム", use_container_width=True):
@@ -93,6 +154,7 @@ if user:
             if st.button("💬 メッセージ", use_container_width=True):
                 st.session_state["current_view"] = "messaging"
                 st.rerun()
+
             st.markdown("---")
             st.markdown("#### ⚙️ 設定")
             if st.button("🎓 クラス設定", use_container_width=True):
@@ -101,6 +163,7 @@ if user:
             if st.button("⚙️ 科目設定", use_container_width=True):
                 st.session_state["current_view"] = "course_settings"
                 st.rerun()
+
             st.markdown("---")
             st.markdown("#### 👁 プレビュー")
             st.caption("学生画面を確認")
@@ -122,7 +185,18 @@ if user:
             if st.button("📝 検定対策", use_container_width=True):
                 st.session_state["current_view"] = "test_prep"
                 st.rerun()
+
+        elif user["role"] == "pending_teacher":
+            # 申請中ユーザー：学生と同じナビ＋申請状況表示
+            st.info("⏳ 教員申請の承認をお待ちください。\n承認されるまでは学生として利用できます。")
+            st.markdown("#### 🎓 学習")
+            if st.button("🏠 ホーム", use_container_width=True):
+                st.session_state["current_view"] = "student_home"
+                st.rerun()
+            _show_student_nav(user)
+
         else:
+            # 学生
             st.markdown("#### 🎓 学習")
             if st.button("🏠 ホーム", use_container_width=True):
                 st.session_state["current_view"] = "student_home"
@@ -142,39 +216,8 @@ if user:
             if st.button("📋 マイポートフォリオ", use_container_width=True):
                 st.session_state["current_view"] = "student_portfolio"
                 st.rerun()
-            st.markdown("---")
-            st.markdown("#### 📚 モジュール")
-            enabled = get_student_enabled_modules(user)
-            if "speaking" in enabled:
-                if st.button("🗣️ Speaking", use_container_width=True):
-                    st.session_state["current_view"] = "speaking"
-                    st.rerun()
-            if "writing" in enabled:
-                if st.button("✏️ Writing", use_container_width=True):
-                    st.session_state["current_view"] = "writing"
-                    st.rerun()
-            if "reading" in enabled:
-                if st.button("📖 Reading", use_container_width=True):
-                    st.session_state["current_view"] = "reading"
-                    st.rerun()
-            if "listening" in enabled:
-                if st.button("🎧 Listening", use_container_width=True):
-                    st.session_state["current_view"] = "listening"
-                    st.rerun()
-            if "test_prep" in enabled:
-                if st.button("📝 検定対策", use_container_width=True):
-                    st.session_state["current_view"] = "test_prep"
-                    st.rerun()
-            st.markdown("---")
-            st.markdown("#### 📝 辞書・語彙")
-            if st.button("📚 Vocabulary", use_container_width=True, key="sidebar_vocab"):
-                st.session_state["current_view"] = "vocabulary"
-                st.rerun()
-            try:
-                from utils.dictionary import show_dictionary_popup
-                show_dictionary_popup(word_key="sidebar_dict")
-            except Exception:
-                st.info("辞書機能を読み込み中...")
+            _show_student_nav(user)
+
         st.markdown("---")
         if st.button("📘 使い方ガイド / Help", use_container_width=True):
             st.session_state["current_view"] = "help"
@@ -182,19 +225,70 @@ if user:
         if st.button("🚪 ログアウト", use_container_width=True):
             logout()
 
+
+def _show_student_nav(user):
+    """学生用モジュールナビ（学生・pending_teacher共通）"""
+    st.markdown("---")
+    st.markdown("#### 📚 モジュール")
+    enabled = get_student_enabled_modules(user)
+    if "speaking" in enabled:
+        if st.button("🗣️ Speaking", use_container_width=True, key="nav_speaking"):
+            st.session_state["current_view"] = "speaking"
+            st.rerun()
+    if "writing" in enabled:
+        if st.button("✏️ Writing", use_container_width=True, key="nav_writing"):
+            st.session_state["current_view"] = "writing"
+            st.rerun()
+    if "reading" in enabled:
+        if st.button("📖 Reading", use_container_width=True, key="nav_reading"):
+            st.session_state["current_view"] = "reading"
+            st.rerun()
+    if "listening" in enabled:
+        if st.button("🎧 Listening", use_container_width=True, key="nav_listening"):
+            st.session_state["current_view"] = "listening"
+            st.rerun()
+    if "test_prep" in enabled:
+        if st.button("📝 検定対策", use_container_width=True, key="nav_test_prep"):
+            st.session_state["current_view"] = "test_prep"
+            st.rerun()
+
+    st.markdown("---")
+    st.markdown("#### 📝 辞書・語彙")
+    if st.button("📚 Vocabulary", use_container_width=True, key="sidebar_vocab"):
+        st.session_state["current_view"] = "vocabulary"
+        st.rerun()
+    try:
+        from utils.dictionary import show_dictionary_popup
+        show_dictionary_popup(word_key="sidebar_dict")
+    except Exception:
+        st.info("辞書機能を読み込み中...")
+
+
 def main():
     if not user:
         login.show()
         return
-    if user["role"] == "student" and not user.get("student_id"):
+
+    # pending_teacher は学生ホームへ（教員申請状況も表示）
+    effective_role = user["role"]
+    if effective_role == "pending_teacher":
+        effective_role = "student"
+
+    # 学生登録フォーム（初回のみ）
+    if effective_role == "student" and not user.get("student_id") and user["role"] != "pending_teacher":
         from views.login import show_registration_form
         show_registration_form()
+
     default_view = "teacher_home" if user["role"] == "teacher" else "student_home"
     view = st.session_state.get("current_view", default_view)
-    teacher_only_views = ["teacher_home", "teacher_dashboard", "student_management",
-                          "assignments", "grades", "class_settings", "course_settings"]
-    if user["role"] == "student" and view in teacher_only_views:
+
+    teacher_only_views = [
+        "teacher_home", "teacher_dashboard", "student_management",
+        "assignments", "grades", "class_settings", "course_settings",
+    ]
+    if effective_role == "student" and view in teacher_only_views:
         view = "student_home"
+
     if view == "word_book":
         show_word_book_view()
         return
@@ -210,6 +304,7 @@ def main():
     if view == "help":
         show_help_view()
         return
+
     views = {
         "teacher_home": teacher_home.show,
         "student_home": student_home.show,
@@ -229,7 +324,12 @@ def main():
         "learning_log": learning_log.show if learning_log else student_home.show,
         "test_prep": test_prep.show if test_prep else student_home.show,
     }
-    views.get(view, student_home.show if user["role"] == "student" else teacher_home.show)()
+    views.get(view, student_home.show if effective_role == "student" else teacher_home.show)()
+
+
+# ============================================================
+# サブビュー（変更なし）
+# ============================================================
 
 def show_word_book_view():
     st.markdown("## 📖 マイ単語帳 / My Word Book")
@@ -257,6 +357,7 @@ def show_word_book_view():
         except Exception as e:
             st.error(f"読み込みエラー: {e}")
 
+
 def show_help_view():
     user = get_current_user()
     if user:
@@ -267,6 +368,7 @@ def show_help_view():
             st.error(f"読み込みエラー: {e}")
     else:
         st.warning("ログインしてください")
+
 
 def show_phonetics_view():
     st.markdown("## 🔊 発音ヘルパー / Pronunciation Helper")
@@ -280,6 +382,7 @@ def show_phonetics_view():
     except Exception as e:
         st.error(f"読み込みエラー: {e}")
 
+
 def show_messaging_view():
     user = get_current_user()
     if user:
@@ -290,6 +393,7 @@ def show_messaging_view():
             st.error(f"読み込みエラー: {e}")
     else:
         st.warning("ログインしてください")
+
 
 def show_analytics_view():
     st.markdown("## 📊 学習分析 / Learning Analytics")
@@ -313,6 +417,7 @@ def show_analytics_view():
             show_analytics_dashboard()
         except Exception as e:
             st.error(f"読み込みエラー: {e}")
+
 
 if __name__ == "__main__":
     main()
