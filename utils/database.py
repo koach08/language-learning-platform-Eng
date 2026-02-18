@@ -462,6 +462,7 @@ def log_practice(student_id: str, module_type: str,
         'student_id': student_id,
         'course_id': course_id,
         'module_type': module_type,
+        'practiced_at': datetime.utcnow().isoformat(),  # 明示的にタイムスタンプを設定
         **kwargs
     }
     result = supabase.table('practice_logs').insert(log_data).execute()
