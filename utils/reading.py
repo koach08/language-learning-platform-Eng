@@ -3,6 +3,7 @@ from openai import OpenAI
 import json
 import time
 
+
 def get_openai_client():
     return OpenAI(api_key=st.secrets["openai"]["api_key"])
 
@@ -14,104 +15,83 @@ DEMO_ARTICLES = {
         "level": "B2",
         "category": "Environment",
         "word_count": 250,
-        "text": """Climate change is one of the most pressing challenges facing humanity today. Scientists around the world agree that human activities, particularly the burning of fossil fuels, are causing global temperatures to rise at an unprecedented rate.
-
-The effects of climate change are already visible. Extreme weather events, such as hurricanes, droughts, and floods, are becoming more frequent and severe. Sea levels are rising, threatening coastal communities. Many species are struggling to adapt to rapidly changing conditions.
-
-However, there is hope. Countries around the world are taking action to reduce greenhouse gas emissions. Renewable energy sources like solar and wind power are becoming more affordable and widespread. Many businesses are adopting sustainable practices, and individuals are making changes in their daily lives to reduce their carbon footprint.
-
-The Paris Agreement, signed by nearly 200 countries, represents a global commitment to limit temperature rise to 1.5 degrees Celsius above pre-industrial levels. While challenges remain, international cooperation and technological innovation offer pathways to a more sustainable future.
-
-Young people are playing a crucial role in this movement, demanding action from governments and corporations. Their activism has helped raise awareness and push climate change to the top of the political agenda in many countries.""",
+        "text": """Climate change is one of the most pressing challenges facing humanity today. Scientists around the world agree that human activities, particularly the burning of fossil fuels, are causing global temperatures to rise at an unprecedented rate. The effects of climate change are already visible. Extreme weather events, such as hurricanes, droughts, and floods, are becoming more frequent and severe. Sea levels are rising, threatening coastal communities. Many species are struggling to adapt to rapidly changing conditions. However, there is hope. Countries around the world are taking action to reduce greenhouse gas emissions. Renewable energy sources like solar and wind power are becoming more affordable and widespread. Many businesses are adopting sustainable practices, and individuals are making changes in their daily lives to reduce their carbon footprint. The Paris Agreement, signed by nearly 200 countries, represents a global commitment to limit temperature rise to 1.5 degrees Celsius above pre-industrial levels. While challenges remain, international cooperation and technological innovation offer pathways to a more sustainable future. Young people are playing a crucial role in this movement, demanding action from governments and corporations. Their activism has helped raise awareness and push climate change to the top of the political agenda in many countries.""",
     },
     "ai_education": {
         "title": "Artificial Intelligence in Education",
         "level": "B1",
         "category": "Technology",
         "word_count": 200,
-        "text": """Artificial Intelligence (AI) is changing the way we learn. From personalized tutoring to automated grading, AI tools are being used in classrooms around the world.
-
-One of the biggest benefits of AI in education is personalization. AI systems can analyze how each student learns and adapt lessons to their needs. If a student struggles with a concept, the AI can provide extra practice. If they master it quickly, they can move on to more challenging material.
-
-AI can also help teachers save time. Grading essays and tests takes many hours, but AI tools can do this work quickly. This gives teachers more time to focus on helping students directly.
-
-However, there are concerns about AI in education. Some worry that too much screen time is bad for children. Others are concerned about privacy and data security. There are also questions about whether AI can truly replace human teachers.
-
-Despite these challenges, AI will likely play an increasingly important role in education. The key is to use these tools wisely, combining the best of technology with the irreplaceable human elements of teaching.""",
+        "text": """Artificial Intelligence (AI) is changing the way we learn. From personalized tutoring to automated grading, AI tools are being used in classrooms around the world. One of the biggest benefits of AI in education is personalization. AI systems can analyze how each student learns and adapt lessons to their needs. If a student struggles with a concept, the AI can provide extra practice. If they master it quickly, they can move on to more challenging material. AI can also help teachers save time. Grading essays and tests takes many hours, but AI tools can do this work quickly. This gives teachers more time to focus on helping students directly. However, there are concerns about AI in education. Some worry that too much screen time is bad for children. Others are concerned about privacy and data security. There are also questions about whether AI can truly replace human teachers. Despite these challenges, AI will likely play an increasingly important role in education. The key is to use these tools wisely, combining the best of technology with the irreplaceable human elements of teaching.""",
     },
     "remote_work": {
         "title": "The Rise of Remote Work",
         "level": "B1",
         "category": "Business",
         "word_count": 180,
-        "text": """The COVID-19 pandemic changed the way many people work. Millions of employees around the world started working from home, and many continue to do so today.
-
-Remote work has several advantages. Workers save time and money by not commuting. They often have more flexibility to balance work and personal life. Many people report being more productive when working from home.
-
-Companies also benefit from remote work. They can save money on office space and hire talented people from anywhere in the world. This has led to more diverse and global teams.
-
-However, remote work also has challenges. Some workers feel isolated and miss the social interaction of an office. Communication can be more difficult when teams are not in the same place. It can also be hard to separate work from personal life when your home is your office.
-
-Many companies are now adopting "hybrid" models, where employees work some days in the office and some days from home. This approach tries to combine the benefits of both remote and in-person work.""",
+        "text": """The COVID-19 pandemic changed the way many people work. Millions of employees around the world started working from home, and many continue to do so today. Remote work has several advantages. Workers save time and money by not commuting. They often have more flexibility to balance work and personal life. Many people report being more productive when working from home. Companies also benefit from remote work. They can save money on office space and hire talented people from anywhere in the world. This has led to more diverse and global teams. However, remote work also has challenges. Some workers feel isolated and miss the social interaction of an office. Communication can be more difficult when teams are not in the same place. It can also be hard to separate work from personal life when your home is your office. Many companies are now adopting "hybrid" models, where employees work some days in the office and some days from home. This approach tries to combine the benefits of both remote and in-person work.""",
     },
 }
 
 
 def generate_comprehension_questions(text, title, num_questions=5, level="B1"):
-    """読解問題を生成（測定理論に基づく高品質版）"""
-
+    """読解問題を生成（genuine reading comprehension重視版）"""
     client = get_openai_client()
 
-    prompt = f"""You are an expert EFL test designer following best practices in language assessment (CEFR Level: {level}).
+    prompt = f"""You are an expert EFL test designer. Your goal is to create questions that CANNOT be answered without carefully reading the article.
 
 Article Title: {title}
 Article Text:
 {text}
 
 ==============================
-MANDATORY DESIGN RULES — follow strictly:
+CRITICAL RULES — no exceptions:
 
-1. PARAPHRASE REQUIRED
-   - The correct answer must NOT copy words/phrases directly from the article.
-   - Rephrase using synonyms or different sentence structures.
-   - This prevents students from answering by simple keyword matching.
+1. ANTI-PATTERN RULE (most important)
+   Every question MUST pass this test:
+   → Can a student who has NOT read the article answer this from general knowledge? 
+   → If YES, reject the question and create a new one.
+   → If NO, the question is valid.
 
-2. PLAUSIBLE DISTRACTORS
-   - Each wrong option must be believable to someone who skimmed or half-read the article.
-   - Wrong options may use words FROM the article but in incorrect combinations.
-   - Do NOT include obviously absurd or grammatically broken options.
+2. ANTI-ELIMINATION RULE
+   Wrong options must NOT be eliminatable by:
+   - Being obviously absurd or unrelated to the topic
+   - Being grammatically inconsistent
+   - Being logically impossible without reading
+   All 4 options must sound plausible to someone who has only skimmed the article.
 
-3. ONE CLEARLY CORRECT ANSWER
-   - Avoid questions where multiple options could be defended.
-   - For inference questions: the answer must follow ONLY from the article content, not from general knowledge.
+3. NO KEYWORD MATCHING
+   Correct answers must PARAPHRASE the article text using synonyms and different sentence structures.
+   Wrong options may use words FROM the article but in incorrect combinations to trap skimmers.
 
-4. NO COMMON-KNOWLEDGE ANSWERS
-   - Every question must require actually reading this specific text to answer correctly.
-
-==============================
-QUESTION TYPE DISTRIBUTION (strictly follow this ratio):
-  - 1 question  → main_idea             : What is the overall message/purpose of the article?
-  - 2 questions → detail                : Explicitly stated in the text, but answer must be PARAPHRASED
-  - 1 question  → inference             : Implied but not directly stated; requires reading between the lines
-  - 1 question  → vocabulary_in_context : Meaning of a word/phrase as used in THIS article
-
-TYPE-SPECIFIC RULES:
-  detail      : Correct answer paraphrases the text. Wrong options use article words in wrong context.
-  inference   : Must NOT be answerable from common knowledge alone. Base reasoning on specific content.
-  vocabulary  : Ask about a word with a non-obvious contextual meaning. Distractors = other common meanings.
+4. SPECIFIC DETAILS ONLY
+   Focus on specific numbers, names, comparisons, causes, effects, or sequences mentioned in THIS article.
+   Avoid questions about general themes that could apply to any article on this topic.
 
 ==============================
+QUESTION TYPE DISTRIBUTION:
+- 1 question → main_idea: The specific argument/purpose of THIS article (not the general topic)
+- 2 questions → detail: Specific facts, numbers, or sequences from the text — answer paraphrased
+- 1 question → inference: A conclusion that follows ONLY from this article's specific content
+- 1 question → vocabulary_in_context: A word whose meaning in this context differs from its common meaning
+
+==============================
+SELF-CHECK before outputting:
+For each question ask yourself:
+"Could a well-educated person answer this without reading the article?"
+If the answer is "possibly yes" — rewrite the question to focus on more specific details.
+
 Generate {num_questions} questions in this JSON format:
 {{
     "questions": [
         {{
-            "question": "<Question in English>",
+            "question": "<Question in English — specific and detail-focused>",
             "question_ja": "<日本語訳>",
             "type": "<main_idea|detail|inference|vocabulary_in_context>",
             "options": ["<A>", "<B>", "<C>", "<D>"],
             "correct": "<Exact text of correct option>",
-            "explanation": "<EN: Why this is correct and why others are wrong. JA: 正解の理由と他の選択肢が間違いな理由>",
-            "text_evidence": "<Short quote from the article that supports the correct answer>"
+            "explanation": "<EN: Why correct + why each wrong option is wrong. JA: 正解の理由と各選択肢が不正解な理由>",
+            "text_evidence": "<Exact short quote from the article that supports the answer>"
         }}
     ]
 }}"""
@@ -120,31 +100,26 @@ Generate {num_questions} questions in this JSON format:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are an expert EFL reading test designer. Follow the design rules exactly. Respond in valid JSON only."},
+                {"role": "system", "content": "You are an expert EFL reading test designer specializing in questions that require genuine reading comprehension. Respond in valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.5,
+            temperature=0.4,
             response_format={"type": "json_object"}
         )
-
         result = json.loads(response.choices[0].message.content)
         result["success"] = True
         return result
-
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 def generate_summary_and_vocabulary(text, title, level="B1"):
     """要約と重要語彙を生成"""
-    
     client = get_openai_client()
-    
     prompt = f"""Analyze this article for a Japanese English learner (Level: {level}).
 
 Article Title: {title}
-Article Text:
-{text}
+Article Text: {text}
 
 Provide analysis in JSON format:
 {{
@@ -169,7 +144,6 @@ Provide analysis in JSON format:
     "related_topics": ["<Related topic 1>", "<Related topic 2>"]
 }}
 """
-
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -180,26 +154,18 @@ Provide analysis in JSON format:
             temperature=0.5,
             response_format={"type": "json_object"}
         )
-        
         result = json.loads(response.choices[0].message.content)
         result["success"] = True
         return result
-        
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 def generate_article_from_prompt(prompt, level="B1", word_count=200):
     """プロンプトから記事を生成"""
-    
     client = get_openai_client()
-    
-    system_prompt = f"""You are a content creator for English learners.
-Create engaging, educational articles appropriate for {level} level Japanese university students.
-Articles should be approximately {word_count} words."""
-
-    user_prompt = f"""Create a reading article based on this request:
-"{prompt}"
+    system_prompt = f"""You are a content creator for English learners. Create engaging, educational articles appropriate for {level} level Japanese university students. Articles should be approximately {word_count} words."""
+    user_prompt = f"""Create a reading article based on this request: "{prompt}"
 
 Output in JSON format:
 {{
@@ -214,8 +180,8 @@ Guidelines:
 - Use vocabulary appropriate for {level} level
 - Include some challenging words with context clues
 - Make the content interesting and relevant to university students
-- Use clear paragraph structure"""
-
+- Use clear paragraph structure
+- Include specific facts, numbers, and details that can be tested (avoid vague generalities)"""
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -226,12 +192,10 @@ Guidelines:
             temperature=0.8,
             response_format={"type": "json_object"}
         )
-        
         result = json.loads(response.choices[0].message.content)
         result["success"] = True
         result["generated"] = True
         return result
-        
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -245,8 +209,6 @@ def calculate_wpm(word_count, reading_time_seconds):
 
 def get_wpm_feedback(wpm, level):
     """WPMに基づくフィードバック"""
-    
-    # 目安（ネイティブは200-300 WPM、学習者はレベルによる）
     targets = {
         "A1": (50, 80),
         "A2": (80, 120),
@@ -254,9 +216,7 @@ def get_wpm_feedback(wpm, level):
         "B2": (180, 220),
         "C1": (220, 280)
     }
-    
     target_min, target_max = targets.get(level, (120, 180))
-    
     if wpm < target_min:
         return {
             "rating": "🐢 ゆっくり / Slow",
