@@ -78,28 +78,18 @@ def get_youtube_transcript(video_id):
 
 
 def get_transcript_auto(video_id):
-    """
-    字幕を取得する。
-    字幕がない場合はyt-dlp/Whisperは使わず、わかりやすいメッセージを返す。
-    （Streamlit Cloudではyt-dlpは使用不可のため）
-    """
+    """字幕を取得する。エラーの場合は実際の原因を表示する。"""
     result = get_youtube_transcript(video_id)
 
     if result.get("success"):
         return result
 
-    # 字幕なし → ユーザーにわかりやすく案内
-    if result.get("no_subtitles"):
-        return {
-            "success": False,
-            "error": (
-                "この動画には英語字幕がありません。\n"
-                "字幕付きの動画を選ぶか、「おすすめ動画リスト」から選択してください。\n"
-                "💡 YouTubeで字幕があるか確認するには、動画の設定メニュー（⚙️）→「字幕」を確認してください。"
-            )
-        }
-
-    return result
+    # 実際のエラーメッセージをそのまま返す
+    actual_error = result.get("error", "不明なエラー")
+    return {
+        "success": False,
+        "error": f"字幕取得エラー: {actual_error}"
+    }
 
 
 def generate_learning_from_topic(topic, video_description="", level="B1"):
