@@ -244,8 +244,8 @@ def show_learning_history(student_id):
     col1, col2 = st.columns(2)
     with col1:
         module_filter = st.selectbox("モジュール",
-            ["全て"] + list(MODULE_LABELS.keys()),
-            format_func=lambda x: MODULE_LABELS.get(x, x))
+            ["全て", "speaking", "reading_practice", "listening_practice"],
+            format_func=lambda x: {"全て": "全て", "speaking": "🎤 スピーキング", "reading_practice": "📖 リーディング", "listening_practice": "👂 リスニング"}.get(x, x))
     with col2:
         days_map = {"今週": 7, "今月": 30, "過去3ヶ月": 90, "全期間": 365}
         period = st.selectbox("期間", list(days_map.keys()))
