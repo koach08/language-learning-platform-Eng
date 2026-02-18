@@ -1280,8 +1280,8 @@ def show_speech_practice(user):
                             'recognized_text': recognized_text[:500] if recognized_text else '',
                         }
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    st.error(f"ログ保存エラー: {e}")
                 
                 # 分析記録
                 try:
