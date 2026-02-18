@@ -62,8 +62,11 @@ def _get_user_from_token(access_token: str) -> Optional[Dict]:
             update_user(db_user["id"], {"role": "student"})
             db_role = "student"
         return {
-            "id": db_user["id"], "email": email, "name": db_user["name"],
-            "role": db_role, "student_id": db_user.get("student_id"),
+            "id": db_user["id"],
+            "email": email,
+            "name": db_user["name"],
+            "role": db_role,
+            "student_id": db_user.get("student_id"),
             "profile_image_url": db_user.get("profile_image_url"),
             "auth_id": str(auth_user.id),
         }
@@ -77,7 +80,12 @@ def switch_to_student_view(course_id: str = None):
     if not user or user["role"] != "teacher":
         return
     st.session_state["original_teacher_user"] = user.copy()
-    st.session_state["user"] = {**user, "role": "student", "_is_preview_mode": True, "_preview_course_id": course_id}
+    st.session_state["user"] = {
+        **user,
+        "role": "student",
+        "_is_preview_mode": True,
+        "_preview_course_id": course_id,
+    }
     st.session_state["current_view"] = "student_home"
     st.rerun()
 
@@ -109,8 +117,9 @@ def login_with_google():
     }
     .google-btn:hover { background-color: #f8f8f8; box-shadow: 0 2px 6px rgba(0,0,0,0.15); text-decoration: none; color: #333; }
     .google-btn img { margin-right: 12px; }
-    </style>""", unsafe_allow_html=True)
-    st.markdown(f"""<a href="{auth_url}" class="google-btn"><img src="https://www.google.com/favicon.ico" width="20" height="20">Googleアカウントでログイン</a>""", unsafe_allow_html=True)
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown(f'<a href="{auth_url}" class="google-btn"><img src="https://www.google.com/favicon.ico" width="20" height="20">Googleアカウントでログイン</a>', unsafe_allow_html=True)
 
 
 def login_with_email():
