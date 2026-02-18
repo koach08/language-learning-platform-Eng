@@ -25,20 +25,48 @@ def extract_youtube_id(url):
 
 
 def get_youtube_transcript(video_id):
-    """YouTube動画の字幕を取得（既存の字幕のみ）"""
+    """YouTube動画の字幕を取得（手動字幕・自動生成字幕両対応）"""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
+
+        # まず手動字幕を試す
         try:
             captions = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'en-US', 'en-GB'])
-        except:
-            return {"success": False, "error": "英語字幕が見つかりませんでした", "no_subtitles": True}
-        full_text = ' '.join([item['text'] for item in captions])
-        return {
-            "success": True,
-            "transcript": full_text,
-            "segments": captions,
-            "method": "youtube_subtitles"
-        }
+            full_text = ' '.join([item['text'] for item in captions])
+            return {
+                "success": True,
+                "transcript": full_text,
+                "segments": captions,
+                "method": "youtube_subtitles"
+            }
+        except Exception:
+            pass
+
+        # 手動字幕がなければ自動生成字幕を試す
+        try:
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            # 自動生成の英語字幕を探す
+            try:
+                transcript = transcript_list.find_generated_transcript(['en', 'en-US', 'en-GB'])
+            except Exception:
+                # 英語以外の自動生成字幕を英語に翻訳して取得
+                transcript = transcript_list.find_generated_transcript(
+                    [t.language_code for t in transcript_list._generated_transcripts.values()]
+                ).translate('en')
+
+            captions = transcript.fetch()
+            full_text = ' '.join([item['text'] for item in captions])
+            return {
+                "success": True,
+                "transcript": full_text,
+                "segments": captions,
+                "method": "auto_generated"
+            }
+        except Exception:
+            pass
+
+        return {"success": False, "error": "字幕が見つかりませんでした", "no_subtitles": True}
+
     except ImportError:
         return {"success": False, "error": "youtube-transcript-api がインストールされていません"}
     except Exception as e:
