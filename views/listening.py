@@ -20,6 +20,18 @@ from utils.listening_youtube import (
 import time
 
 
+def get_student_course_id(user):
+    """学生のcourse_idを取得（ログ保存用）"""
+    try:
+        from utils.database import get_student_courses
+        courses = get_student_courses(user['id'])
+        if courses:
+            return courses[0].get('id')
+    except Exception:
+        pass
+    return None
+
+
 @require_auth
 def show():
     user = get_current_user()
@@ -286,6 +298,35 @@ def show_youtube_learning_student():
 
                         if feedback.get("tip"):
                             st.markdown(f"**💡 アドバイス:** {feedback.get('tip')}")
+
+                        # DB保存
+                        try:
+                            user = get_current_user()
+                            if user:
+                                from utils.database import log_listening, log_practice
+                                log_listening(
+                                    student_id=user['id'],
+                                    course_id=get_student_course_id(user),
+                                    video_url=url,
+                                    video_title=url,
+                                    activity_type='dictation',
+                                    quiz_score=score,
+                                    quiz_results=[{
+                                        'user_input': user_input,
+                                        'score': score,
+                                        'corrections': feedback.get('corrections', []),
+                                        'tip': feedback.get('tip', '')
+                                    }]
+                                )
+                                log_practice(
+                                    student_id=user['id'],
+                                    course_id=get_student_course_id(user),
+                                    module_type='listening',
+                                    activity_details={'type': 'youtube_dictation', 'url': url, 'score': score},
+                                    score=score
+                                )
+                        except Exception:
+                            pass
         else:
             st.warning("有効なYouTube URLを入力してください")
 
@@ -424,6 +465,7 @@ def show_youtube_quiz(exercises):
                     video_url = st.session_state.get('s_yt_video_url', '')
                     log_listening(
                         student_id=user['id'],
+                        course_id=get_student_course_id(user),
                         video_url=video_url,
                         video_title=st.session_state.get('s_yt_exercises', {}).get('summary', {}).get('english', '')[:200],
                         activity_type='extensive',
@@ -437,6 +479,7 @@ def show_youtube_quiz(exercises):
                     )
                     log_practice(
                         student_id=user['id'],
+                        course_id=get_student_course_id(user),
                         module_type='listening',
                         activity_details={'type': 'youtube_quiz', 'score': score, 'video_url': video_url},
                         score=score,
@@ -489,12 +532,14 @@ def show_youtube_dictation(exercises):
                     from utils.database import log_listening, log_practice
                     log_listening(
                         student_id=user['id'],
+                        course_id=get_student_course_id(user),
                         video_url=st.session_state.get('s_yt_video_url', ''),
                         activity_type='practice',
                         quiz_score=accuracy,
                     )
                     log_practice(
                         student_id=user['id'],
+                        course_id=get_student_course_id(user),
                         module_type='listening',
                         activity_details={'type': 'dictation', 'accuracy': accuracy},
                         score=accuracy,
@@ -562,12 +607,14 @@ def show_listening_practice():
                         from utils.database import log_listening, log_practice
                         log_listening(
                             student_id=user['id'],
+                            course_id=get_student_course_id(user),
                             video_title=material.get('title', ''),
                             estimated_level=material.get('level', ''),
                             activity_type='practice',
                         )
                         log_practice(
                             student_id=user['id'],
+                            course_id=get_student_course_id(user),
                             module_type='listening',
                             activity_details={'type': 'material_practice', 'title': material.get('title', '')},
                         )
@@ -616,12 +663,14 @@ def show_material_quiz(material, material_key):
                         score = correct / max(len(questions), 1) * 100
                         log_listening(
                             student_id=user['id'],
+                            course_id=get_student_course_id(user),
                             video_title=material.get('title', ''),
                             activity_type='practice',
                             quiz_score=score,
                         )
                         log_practice(
                             student_id=user['id'],
+                            course_id=get_student_course_id(user),
                             module_type='listening',
                             activity_details={'type': 'material_quiz', 'title': material.get('title', ''), 'score': score},
                             score=score,
