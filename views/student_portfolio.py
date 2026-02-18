@@ -301,17 +301,17 @@ def show_learning_history(student_id):
                     for key, val in details.get('scores', {}).items():
                         if isinstance(val, (int, float)):
                             st.caption(f"{key}: {val}")
-        if len(logs) > 30:
-            st.caption(f"... 他 {len(logs) - 30}件")
+        if len(all_logs) > 30:
+            st.caption(f"... 他 {len(all_logs) - 30}件")
 
         if st.button("📥 CSV出力"):
             import pandas as pd
             df = pd.DataFrame([{
-                '日時': l.get('practiced_at', '')[:16],
-                'モジュール': l.get('module_type', ''),
+                '日時': l.get('dt', ''),
+                'モジュール': l.get('module', ''),
                 'スコア': l.get('score', ''),
-                '時間(秒)': l.get('duration_seconds', ''),
-            } for l in logs])
+                '時間(秒)': l.get('title', ''),
+            } for l in all_logs])
             csv = df.to_csv(index=False).encode('utf-8-sig')
             st.download_button("📤 ダウンロード", csv,
                 f"history_{student_id[:8]}_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
@@ -393,7 +393,7 @@ def show_growth_record(student_id):
             import pandas as pd
             df = pd.DataFrame([{
                 '日付': l.get('practiced_at', '')[:10],
-                'モジュール': l.get('module_type', ''),
+                'モジュール': l.get('module', ''),
                 'スコア': l.get('score', 0),
             } for l in scored])
             for module in df['モジュール'].unique():
