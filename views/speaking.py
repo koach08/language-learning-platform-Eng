@@ -604,17 +604,15 @@ def show_ai_text_generation(user):
                 except Exception:
                     pass
 
+                # 練習インターフェースをその場で展開
+                practice_key = f"show_practice_{i}"
+                if practice_key not in st.session_state:
+                    st.session_state[practice_key] = False
+
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("🎤 このテキストで練習", key=f"practice_{i}", use_container_width=True):
-                        st.session_state['practice_material'] = {
-                            "id": f"ai_{text_data['id']}",
-                            "title": text_data['title'],
-                            "level": text_data.get('level', 'AI Generated'),
-                            "duration": f"約{len(text_data['text'].split()) // 100 + 1}分",
-                            "text": text_data['text'],
-                            "tips": text_data.get('tips', '')
-                        }
+                        st.session_state[practice_key] = not st.session_state[practice_key]
                         st.rerun()
                 with col2:
                     if st.button("🗑️ 削除", key=f"delete_{i}", use_container_width=True):
@@ -625,6 +623,19 @@ def show_ai_text_generation(user):
                             pass
                         ai_texts.pop(i)
                         st.rerun()
+
+                # 練習インターフェースをその場で展開
+                if st.session_state.get(f"show_practice_{i}", False):
+                    st.markdown("---")
+                    material = {
+                        "id": f"ai_{text_data['id']}",
+                        "title": text_data['title'],
+                        "level": text_data.get('level', 'AI Generated'),
+                        "duration": f"約{len(text_data['text'].split()) // 100 + 1}分",
+                        "text": text_data['text'],
+                        "tips": text_data.get('tips', '')
+                    }
+                    show_practice_interface(material, user)
 
 
 def generate_reading_text(topic, difficulty, length, style, include_vocab, include_tips):

@@ -206,16 +206,34 @@ def show_chat_screen():
             _play_web_speech_fallback(initial_message)
     
     # === メッセージ表示 ===
-    for msg in st.session_state.chat_messages:
+    messages = st.session_state.chat_messages
+    # 最新AIメッセージのインデックスを取得
+    last_ai_idx = None
+    for i, msg in enumerate(messages):
+        if msg["role"] == "assistant":
+            last_ai_idx = i
+
+    for idx, msg in enumerate(messages):
         if msg["role"] == "assistant":
             with st.chat_message("assistant", avatar="🤖"):
                 st.markdown(msg["content"])
-                if st.button("🔊", key=f"play_{hash(msg['content'])}", help="音声を再生"):
+                is_latest = (idx == last_ai_idx)
+                if is_latest and st.session_state.get('_auto_play_latest', False):
+                    # 最新メッセージ: 自動再生
                     audio = text_to_speech_openai(msg["content"], voice="nova")
                     if audio:
-                        play_audio_autoplay(audio)
+                        play_audio_autoplay(audio, show_controls=True)
                     else:
                         _play_web_speech_fallback(msg["content"])
+                    st.session_state['_auto_play_latest'] = False
+                else:
+                    # 過去メッセージ: 🔊ボタン
+                    if st.button("🔊", key=f"play_{idx}_{hash(msg['content'])}", help="音声を再生"):
+                        audio = text_to_speech_openai(msg["content"], voice="nova")
+                        if audio:
+                            play_audio_autoplay(audio, show_controls=True)
+                        else:
+                            _play_web_speech_fallback(msg["content"])
         else:
             with st.chat_message("user", avatar="👤"):
                 st.markdown(msg["content"])
@@ -320,12 +338,8 @@ def process_user_input(user_input, situation_key, level, is_voice=False):
         "content": ai_response
     })
     
-    # OpenAI TTSで音声生成
-    audio = text_to_speech_openai(ai_response, voice="nova")
-    if audio:
-        play_audio_autoplay(audio)
-    else:
-        _play_web_speech_fallback(ai_response)
+    # 自動再生フラグを立てる（rerun後のメッセージ表示ループで最新AIメッセージを自動再生）
+    st.session_state['_auto_play_latest'] = True
     
     st.rerun()
 
