@@ -25,47 +25,40 @@ def extract_youtube_id(url):
 
 
 def get_youtube_transcript(video_id):
-    """YouTube動画の字幕を取得（全言語対応）"""
+    """YouTube動画の字幕を取得（v1.0+ 新API対応）"""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
 
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        # v1.0+はインスタンスを作って使う
+        ytt = YouTubeTranscriptApi()
+        transcript_list = ytt.list(video_id)
 
-        # 1. 手動英語字幕を試す
+        # 英語字幕を優先して取得
         try:
             transcript = transcript_list.find_transcript(['en', 'en-US', 'en-GB'])
             captions = transcript.fetch()
             full_text = ' '.join([item['text'] for item in captions])
-            return {"success": True, "transcript": full_text, "segments": captions, "method": "manual"}
+            return {"success": True, "transcript": full_text, "segments": list(captions), "method": "en"}
         except Exception:
             pass
 
-        # 2. 自動生成英語字幕を試す
-        try:
-            transcript = transcript_list.find_generated_transcript(['en', 'en-US', 'en-GB'])
-            captions = transcript.fetch()
-            full_text = ' '.join([item['text'] for item in captions])
-            return {"success": True, "transcript": full_text, "segments": captions, "method": "auto"}
-        except Exception:
-            pass
-
-        # 3. 利用可能な全字幕から英語を含むものを探す
+        # 英語がなければ利用可能な全字幕から英語を含むものを探す
         for transcript in transcript_list:
             if 'en' in transcript.language_code.lower():
                 try:
                     captions = transcript.fetch()
                     full_text = ' '.join([item['text'] for item in captions])
-                    return {"success": True, "transcript": full_text, "segments": captions, "method": "any_en"}
+                    return {"success": True, "transcript": full_text, "segments": list(captions), "method": "any_en"}
                 except Exception:
                     continue
 
-        # 4. 英語字幕がなければ他言語字幕を英語に翻訳
+        # それでもなければ翻訳
         for transcript in transcript_list:
             try:
                 translated = transcript.translate('en')
                 captions = translated.fetch()
                 full_text = ' '.join([item['text'] for item in captions])
-                return {"success": True, "transcript": full_text, "segments": captions, "method": "translated"}
+                return {"success": True, "transcript": full_text, "segments": list(captions), "method": "translated"}
             except Exception:
                 continue
 
