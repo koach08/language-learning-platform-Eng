@@ -31,13 +31,24 @@ def clear_student_cache(student_id: str = None):
     _get_vocabulary_stats_cached.clear()
 
 
-def get_supabase_client() -> Client:
-    """Supabaseクライアントを取得（シングルトン）"""
-    if 'supabase_client' not in st.session_state:
-        url = st.secrets["supabase"]["url"]
-        key = st.secrets["supabase"]["anon_key"]
-        st.session_state.supabase_client = create_client(url, key)
-    return st.session_state.supabase_client
+def get_supabase_client(use_service_role: bool = True) -> Client:
+    """Supabaseクライアントを取得（シングルトン）
+    
+    use_service_role=True のとき service_role_key を使用（RLS回避・書き込み用）
+    デフォルトはTrue（全操作でRLSをバイパス）
+    """
+    if use_service_role:
+        if 'supabase_service_client' not in st.session_state:
+            url = st.secrets["supabase"]["url"]
+            key = st.secrets["supabase"]["service_role_key"]
+            st.session_state.supabase_service_client = create_client(url, key)
+        return st.session_state.supabase_service_client
+    else:
+        if 'supabase_client' not in st.session_state:
+            url = st.secrets["supabase"]["url"]
+            key = st.secrets["supabase"]["anon_key"]
+            st.session_state.supabase_client = create_client(url, key)
+        return st.session_state.supabase_client
 
 
 # ============================================================
