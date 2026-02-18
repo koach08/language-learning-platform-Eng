@@ -25,45 +25,49 @@ def extract_youtube_id(url):
 
 
 def get_youtube_transcript(video_id):
-    """YouTube動画の字幕を取得（手動字幕・自動生成字幕両対応）"""
+    """YouTube動画の字幕を取得（全言語対応）"""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
 
-        # まず手動字幕を試す
-        try:
-            captions = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'en-US', 'en-GB'])
-            full_text = ' '.join([item['text'] for item in captions])
-            return {
-                "success": True,
-                "transcript": full_text,
-                "segments": captions,
-                "method": "youtube_subtitles"
-            }
-        except Exception:
-            pass
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
 
-        # 手動字幕がなければ自動生成字幕を試す
+        # 1. 手動英語字幕を試す
         try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            # 自動生成の英語字幕を探す
-            try:
-                transcript = transcript_list.find_generated_transcript(['en', 'en-US', 'en-GB'])
-            except Exception:
-                # 英語以外の自動生成字幕を英語に翻訳して取得
-                transcript = transcript_list.find_generated_transcript(
-                    [t.language_code for t in transcript_list._generated_transcripts.values()]
-                ).translate('en')
-
+            transcript = transcript_list.find_transcript(['en', 'en-US', 'en-GB'])
             captions = transcript.fetch()
             full_text = ' '.join([item['text'] for item in captions])
-            return {
-                "success": True,
-                "transcript": full_text,
-                "segments": captions,
-                "method": "auto_generated"
-            }
+            return {"success": True, "transcript": full_text, "segments": captions, "method": "manual"}
         except Exception:
             pass
+
+        # 2. 自動生成英語字幕を試す
+        try:
+            transcript = transcript_list.find_generated_transcript(['en', 'en-US', 'en-GB'])
+            captions = transcript.fetch()
+            full_text = ' '.join([item['text'] for item in captions])
+            return {"success": True, "transcript": full_text, "segments": captions, "method": "auto"}
+        except Exception:
+            pass
+
+        # 3. 利用可能な全字幕から英語を含むものを探す
+        for transcript in transcript_list:
+            if 'en' in transcript.language_code.lower():
+                try:
+                    captions = transcript.fetch()
+                    full_text = ' '.join([item['text'] for item in captions])
+                    return {"success": True, "transcript": full_text, "segments": captions, "method": "any_en"}
+                except Exception:
+                    continue
+
+        # 4. 英語字幕がなければ他言語字幕を英語に翻訳
+        for transcript in transcript_list:
+            try:
+                translated = transcript.translate('en')
+                captions = translated.fetch()
+                full_text = ' '.join([item['text'] for item in captions])
+                return {"success": True, "transcript": full_text, "segments": captions, "method": "translated"}
+            except Exception:
+                continue
 
         return {"success": False, "error": "字幕が見つかりませんでした", "no_subtitles": True}
 
