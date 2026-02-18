@@ -513,9 +513,7 @@ def _save_reading_quiz_to_db(questions, score_pct):
         )
         
     except Exception as e:
-        # DB保存失敗は学習体験を妨げないようにサイレントに
-        import logging
-        logging.warning(f"Reading quiz save failed: {e}")
+        st.error(f"Reading保存エラー: {e}")
 
 
 def show_reading_analysis(data):

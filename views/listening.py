@@ -484,8 +484,8 @@ def show_youtube_quiz(exercises):
                         activity_details={'type': 'youtube_quiz', 'score': score, 'video_url': video_url},
                         score=score,
                     )
-            except Exception:
-                pass  # DB保存失敗しても学習は続行
+            except Exception as e:
+                st.error(f"Listening保存エラー: {e}")
             st.rerun()
     else:
         correct = sum(1 for i, q in enumerate(questions) if st.session_state.yt_answers.get(i) == q.get('correct'))
