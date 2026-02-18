@@ -1,11 +1,11 @@
 """YouTube関連の機能"""
-
 import streamlit as st
 from openai import OpenAI
 import json
 import re
 import tempfile
 import os
+
 
 def get_openai_client():
     return OpenAI(api_key=st.secrets["openai"]["api_key"])
@@ -25,137 +25,48 @@ def extract_youtube_id(url):
 
 
 def get_youtube_transcript(video_id):
-    """YouTube動画の字幕を取得（既存の字幕）"""
+    """YouTube動画の字幕を取得（既存の字幕のみ）"""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
-        
         try:
             captions = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'en-US', 'en-GB'])
         except:
             return {"success": False, "error": "英語字幕が見つかりませんでした", "no_subtitles": True}
-        
         full_text = ' '.join([item['text'] for item in captions])
-        return {"success": True, "transcript": full_text, "segments": captions, "method": "youtube_subtitles"}
-        
+        return {
+            "success": True,
+            "transcript": full_text,
+            "segments": captions,
+            "method": "youtube_subtitles"
+        }
     except ImportError:
         return {"success": False, "error": "youtube-transcript-api がインストールされていません"}
     except Exception as e:
         return {"success": False, "error": str(e), "no_subtitles": True}
 
 
-def download_youtube_audio(video_id):
-    """YouTube動画の音声をダウンロード"""
-    try:
-        import yt_dlp
-        
-        url = f"https://www.youtube.com/watch?v={video_id}"
-        
-        # 一時ファイルに保存
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = os.path.join(tmpdir, "audio")
-            
-            ydl_opts = {
-                'format': 'bestaudio/best',
-                'outtmpl': output_path,
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '128',
-                }],
-                'quiet': True,
-                'no_warnings': True,
-            }
-            
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                title = info.get('title', 'Unknown')
-                duration = info.get('duration', 0)
-            
-            # 音声ファイルを読み込み
-            audio_file = output_path + ".mp3"
-            if os.path.exists(audio_file):
-                with open(audio_file, 'rb') as f:
-                    audio_data = f.read()
-                return {
-                    "success": True,
-                    "audio_data": audio_data,
-                    "title": title,
-                    "duration": duration
-                }
-            else:
-                return {"success": False, "error": "音声ファイルが見つかりません"}
-                
-    except ImportError:
-        return {"success": False, "error": "yt-dlp がインストールされていません"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-def transcribe_with_whisper(audio_data, filename="audio.mp3"):
-    """Whisper APIで音声を文字起こし"""
-    
-    client = get_openai_client()
-    
-    try:
-        # 一時ファイルに保存
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp.write(audio_data)
-            tmp_path = tmp.name
-        
-        # Whisper APIで文字起こし
-        with open(tmp_path, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="en"
-            )
-        
-        # 一時ファイル削除
-        os.unlink(tmp_path)
-        
-        return {
-            "success": True,
-            "transcript": transcript.text,
-            "method": "whisper"
-        }
-        
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
 def get_transcript_auto(video_id):
     """
-    自動で最適な方法で字幕を取得
-    1. まずYouTube字幕を試す
-    2. なければWhisperで文字起こし
+    字幕を取得する。
+    字幕がない場合はyt-dlp/Whisperは使わず、わかりやすいメッセージを返す。
+    （Streamlit Cloudではyt-dlpは使用不可のため）
     """
-    
-    # まずYouTube字幕を試す
     result = get_youtube_transcript(video_id)
-    
+
     if result.get("success"):
         return result
-    
-    # 字幕がなければWhisperで文字起こし
+
+    # 字幕なし → ユーザーにわかりやすく案内
     if result.get("no_subtitles"):
-        st.info("📝 字幕がないため、Whisper AIで音声認識中...")
-        
-        # 音声をダウンロード
-        audio_result = download_youtube_audio(video_id)
-        
-        if not audio_result.get("success"):
-            return {"success": False, "error": f"音声ダウンロードエラー: {audio_result.get('error')}"}
-        
-        # Whisperで文字起こし
-        whisper_result = transcribe_with_whisper(audio_result.get("audio_data"))
-        
-        if whisper_result.get("success"):
-            whisper_result["title"] = audio_result.get("title")
-            whisper_result["duration"] = audio_result.get("duration")
-            return whisper_result
-        else:
-            return whisper_result
-    
+        return {
+            "success": False,
+            "error": (
+                "この動画には英語字幕がありません。\n"
+                "字幕付きの動画を選ぶか、「おすすめ動画リスト」から選択してください。\n"
+                "💡 YouTubeで字幕があるか確認するには、動画の設定メニュー（⚙️）→「字幕」を確認してください。"
+            )
+        }
+
     return result
 
 
@@ -164,9 +75,7 @@ def generate_learning_from_topic(topic, video_description="", level="B1"):
     トピックから学習素材を生成（動画の字幕なしで使用）
     学生が動画を見ながら使う補助教材
     """
-    
     client = get_openai_client()
-    
     prompt = f"""A Japanese university student wants to learn English by watching a YouTube video about the following topic.
 Create learning materials to help them understand and learn from the video.
 
@@ -196,10 +105,10 @@ Create materials in JSON format:
         }}
     ],
     "background_knowledge": [
-        "<Background info that helps understand videos on this topic / このトピックの動画を理解するための予備知識>"
+        "<Background info that helps understand videos on this topic>"
     ],
     "listening_tips": [
-        "<Tip for understanding videos on this topic / このトピックの動画を聞くときのコツ>"
+        "<Tip for understanding videos on this topic>"
     ],
     "practice_questions": [
         {{
@@ -220,9 +129,7 @@ Guidelines:
 - Include 8-10 useful phrases
 - Make it specific to the topic
 - Consider what Japanese learners might find difficult
-- Include cultural context if relevant
 """
-
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -233,28 +140,22 @@ Guidelines:
             temperature=0.7,
             response_format={"type": "json_object"}
         )
-        
         result = json.loads(response.choices[0].message.content)
         result["success"] = True
         return result
-        
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 def generate_exercises_from_transcript(transcript, video_title="", level="B1"):
     """字幕から学習素材を生成"""
-    
     client = get_openai_client()
-    
     if len(transcript) > 3000:
         transcript = transcript[:3000] + "..."
-    
     prompt = f"""Based on this video transcript, create English learning materials for a Japanese student (Level: {level}).
 
 Title: {video_title}
-Transcript:
-{transcript}
+Transcript: {transcript}
 
 Create in JSON format:
 {{
@@ -289,7 +190,6 @@ Create in JSON format:
 }}
 
 Include 8-12 vocabulary, 5 questions, 3-5 dictation segments."""
-
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -300,26 +200,20 @@ Include 8-12 vocabulary, 5 questions, 3-5 dictation segments."""
             temperature=0.7,
             response_format={"type": "json_object"}
         )
-        
         result = json.loads(response.choices[0].message.content)
         result["success"] = True
         return result
-        
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 def analyze_video_difficulty(transcript, level="B1"):
     """動画の難易度を分析"""
-    
     client = get_openai_client()
-    
     sample = transcript[:1500] if len(transcript) > 1500 else transcript
-    
     prompt = f"""Analyze this transcript's difficulty for a Japanese learner ({level}).
 
-Transcript:
-{sample}
+Transcript: {sample}
 
 JSON format:
 {{
@@ -332,7 +226,6 @@ JSON format:
     "suitability_score": <1-10>,
     "recommendations": "<学習アドバイス>"
 }}"""
-
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -343,11 +236,9 @@ JSON format:
             temperature=0.3,
             response_format={"type": "json_object"}
         )
-        
         result = json.loads(response.choices[0].message.content)
         result["success"] = True
         return result
-        
     except Exception as e:
         return {"success": False, "error": str(e)}
 
