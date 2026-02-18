@@ -1,25 +1,26 @@
 """
 Authentication Module - Google OAuth (implicit) + email fallback
+招待コード方式教員登録・ロール切り替え対応版
 """
 import streamlit as st
 from typing import Optional, Dict
 import urllib.parse
 
+
 def get_auth_url() -> str:
     supabase_url = st.secrets["supabase"]["url"]
     redirect_url = _get_redirect_url()
     auth_url = f"{supabase_url}/auth/v1/authorize"
-    params = {
-        "provider": "google",
-        "redirect_to": redirect_url,
-    }
+    params = {"provider": "google", "redirect_to": redirect_url}
     return f"{auth_url}?{urllib.parse.urlencode(params)}"
+
 
 def _get_redirect_url() -> str:
     try:
         return st.secrets.get("app", {}).get("redirect_url", "http://localhost:8502/callback.html")
     except Exception:
         return "http://localhost:8501"
+
 
 def handle_oauth_callback() -> bool:
     query_params = st.query_params
@@ -30,9 +31,10 @@ def handle_oauth_callback() -> bool:
         if user_info:
             st.session_state["user"] = user_info
             st.session_state["authenticated"] = True
-        st.query_params.clear()
-        return True
+            st.query_params.clear()
+            return True
     return False
+
 
 def _get_user_from_token(access_token: str) -> Optional[Dict]:
     from utils.database import get_supabase_client, get_or_create_user
@@ -49,21 +51,50 @@ def _get_user_from_token(access_token: str) -> Optional[Dict]:
         teacher_emails = st.secrets.get("app", {}).get("teacher_emails", "")
         if isinstance(teacher_emails, str):
             teacher_emails = [e.strip() for e in teacher_emails.split(",") if e.strip()]
-        role = "teacher" if email in teacher_emails else "student"
         db_user = get_or_create_user(email, name, avatar_url)
-        if db_user.get("role") != role:
+        db_role = db_user.get("role", "student")
+        if email in teacher_emails and db_role != "teacher":
             from utils.database import update_user
-            update_user(db_user["id"], {"role": role})
-            db_user["role"] = role
+            update_user(db_user["id"], {"role": "teacher"})
+            db_role = "teacher"
+        if db_role == "pending_teacher":
+            from utils.database import update_user
+            update_user(db_user["id"], {"role": "student"})
+            db_role = "student"
         return {
             "id": db_user["id"], "email": email, "name": db_user["name"],
-            "role": role, "student_id": db_user.get("student_id"),
+            "role": db_role, "student_id": db_user.get("student_id"),
             "profile_image_url": db_user.get("profile_image_url"),
             "auth_id": str(auth_user.id),
         }
     except Exception as e:
         st.error(f"User info error: {e}")
         return None
+
+
+def switch_to_student_view(course_id: str = None):
+    user = get_current_user()
+    if not user or user["role"] != "teacher":
+        return
+    st.session_state["original_teacher_user"] = user.copy()
+    st.session_state["user"] = {**user, "role": "student", "_is_preview_mode": True, "_preview_course_id": course_id}
+    st.session_state["current_view"] = "student_home"
+    st.rerun()
+
+
+def switch_back_to_teacher():
+    original = st.session_state.get("original_teacher_user")
+    if original:
+        st.session_state["user"] = original
+        del st.session_state["original_teacher_user"]
+    st.session_state["current_view"] = "teacher_home"
+    st.rerun()
+
+
+def is_preview_mode() -> bool:
+    user = get_current_user()
+    return bool(user and user.get("_is_preview_mode"))
+
 
 def login_with_google():
     auth_url = get_auth_url()
@@ -76,19 +107,11 @@ def login_with_google():
         font-weight: 500; text-decoration: none; transition: all 0.2s;
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
-    .google-btn:hover {
-        background-color: #f8f8f8; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-        text-decoration: none; color: #333;
-    }
+    .google-btn:hover { background-color: #f8f8f8; box-shadow: 0 2px 6px rgba(0,0,0,0.15); text-decoration: none; color: #333; }
     .google-btn img { margin-right: 12px; }
-    </style>
-    """, unsafe_allow_html=True)
-    st.markdown(f"""
-    <a href="{auth_url}" class="google-btn">
-        <img src="https://www.google.com/favicon.ico" width="20" height="20">
-        Googleアカウントでログイン
-    </a>
-    """, unsafe_allow_html=True)
+    </style>""", unsafe_allow_html=True)
+    st.markdown(f"""<a href="{auth_url}" class="google-btn"><img src="https://www.google.com/favicon.ico" width="20" height="20">Googleアカウントでログイン</a>""", unsafe_allow_html=True)
+
 
 def login_with_email():
     with st.form("login_form"):
@@ -102,29 +125,31 @@ def login_with_email():
             teacher_emails = st.secrets.get("app", {}).get("teacher_emails", "")
             if isinstance(teacher_emails, str):
                 teacher_emails = [e.strip() for e in teacher_emails.split(",") if e.strip()]
-            role = "teacher" if email in teacher_emails else "student"
             try:
                 from utils.database import get_or_create_user, update_user
                 db_user = get_or_create_user(email, name)
-                if db_user.get("role") != role:
-                    update_user(db_user["id"], {"role": role})
-                    db_user["role"] = role
+                db_role = db_user.get("role", "student")
+                if email in teacher_emails:
+                    if db_role != "teacher":
+                        update_user(db_user["id"], {"role": "teacher"})
+                    db_role = "teacher"
+                if db_role == "pending_teacher":
+                    update_user(db_user["id"], {"role": "student"})
+                    db_role = "student"
                 st.session_state["user"] = {
                     "id": db_user["id"], "email": email, "name": db_user["name"],
-                    "role": role, "student_id": db_user.get("student_id"),
+                    "role": db_role, "student_id": db_user.get("student_id"),
                     "profile_image_url": db_user.get("profile_image_url"),
                 }
             except Exception:
-                st.session_state["user"] = {
-                    "id": email, "email": email, "name": name,
-                    "role": role, "student_id": None,
-                }
+                role = "teacher" if email in teacher_emails else "student"
+                st.session_state["user"] = {"id": email, "email": email, "name": name, "role": role, "student_id": None}
             st.session_state["authenticated"] = True
             st.rerun()
 
+
 def logout():
-    keys_to_clear = ["user", "authenticated", "access_token", "refresh_token",
-                     "current_course", "current_view"]
+    keys_to_clear = ["user", "authenticated", "access_token", "refresh_token", "current_course", "current_view", "original_teacher_user"]
     for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]
@@ -136,19 +161,24 @@ def logout():
         pass
     st.rerun()
 
+
 def is_authenticated() -> bool:
     return st.session_state.get("authenticated", False)
 
+
 def get_current_user() -> Optional[Dict]:
     return st.session_state.get("user")
+
 
 def is_teacher() -> bool:
     user = get_current_user()
     return user is not None and user.get("role") == "teacher"
 
+
 def is_student() -> bool:
     user = get_current_user()
     return user is not None and user.get("role") == "student"
+
 
 def require_auth(func):
     def wrapper(*args, **kwargs):
@@ -158,6 +188,7 @@ def require_auth(func):
             st.stop()
         return func(*args, **kwargs)
     return wrapper
+
 
 def require_teacher(func):
     def wrapper(*args, **kwargs):
@@ -171,6 +202,7 @@ def require_teacher(func):
         return func(*args, **kwargs)
     return wrapper
 
+
 def require_student(func):
     def wrapper(*args, **kwargs):
         if not is_authenticated():
@@ -182,6 +214,7 @@ def require_student(func):
             st.stop()
         return func(*args, **kwargs)
     return wrapper
+
 
 def init_session():
     if "user" not in st.session_state:
