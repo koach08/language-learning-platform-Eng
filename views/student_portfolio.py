@@ -254,21 +254,32 @@ def show_learning_history(student_id):
     st.markdown("---")
     module_type = module_filter if module_filter != "全て" else None
     try:
-        from utils.database import get_student_practice_details
-        logs = get_student_practice_details(student_id, days=days, module_type=module_type)
-        if not logs:
+        from utils.database import get_student_practice_details, get_student_listening_logs
+        all_logs = []
+        if module_type != "listening_practice":
+            for log in (get_student_practice_details(student_id, days=days, module_type=module_type) or []):
+                details = log.get("activity_details") or {}
+                dt = log.get("practiced_at", "")[:16].replace("T", " ")
+                module = MODULE_LABELS.get(log.get("module_type", ""), log.get("module_type", ""))
+                title = details.get("title", "")
+                all_logs.append({"dt": dt, "header": f"📌 {dt} — {module}" + (f": {title}" if title else ""), "module": module, "title": title, "score": log.get("score"), "duration": log.get("duration_seconds", 0), "details": details})
+        if module_type in (None, "listening_practice"):
+            for log in (get_student_listening_logs(student_id, days=days) or []):
+                dt = log.get("completed_at", "")[:16].replace("T", " ")
+                title = log.get("video_title", "") or ""
+                score = log.get("quiz_score")
+                atype = log.get("activity_type", "practice")
+                type_label = {"extensive": "YouTube学習", "practice": "練習", "dictation": "ディクテーション"}.get(atype, atype)
+                all_logs.append({"dt": dt, "header": f"👂 {dt} — リスニング ({type_label})" + (f": {title}" if title else ""), "module": "👂 リスニング", "title": title, "score": score, "duration": log.get("time_spent_seconds", 0), "details": {}})
+        all_logs.sort(key=lambda x: x["dt"], reverse=True)
+        if not all_logs:
             st.info("この条件の学習データはありません")
             return
-        st.caption(f"{len(logs)}件のログ")
-        for log in logs[:30]:
-            details = log.get('activity_details') or {}
-            dt = log.get('practiced_at', '')[:16].replace('T', ' ')
-            module = MODULE_LABELS.get(log.get('module_type', ''), log.get('module_type', ''))
-            title = details.get('title', '')
-            header = f"📌 {dt} — {module}"
-            if title:
-                header += f": {title}"
-            with st.expander(header):
+        st.caption(f"{len(all_logs)}件のログ")
+        for log in all_logs[:30]:
+            details = log.get("details", {})
+            title = log.get("title", "")
+            with st.expander(log["header"]):
                 col1, col2 = st.columns([2, 1])
                 with col1:
                     if details.get('activity'):
