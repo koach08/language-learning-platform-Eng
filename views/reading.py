@@ -458,7 +458,9 @@ def _save_reading_quiz_to_db(questions, score_pct):
         course_id = None
         registered = st.session_state.get('student_registered_classes', [])
         if registered:
-            course_id = registered[0].get('class_key')
+            first = registered[0]
+            if isinstance(first, dict):
+                course_id = first.get('class_key') or first.get('id') or first.get('course_id')
         
         # 記事情報を取得
         article = st.session_state.get('current_article') or st.session_state.get('student_article', {})
