@@ -72,14 +72,32 @@ def text_to_speech_azure(text, voice="en-US-JennyNeural"):
         return None
 
 
-def play_audio_autoplay(audio_data):
-    """音声を自動再生"""
-    
-    if audio_data:
-        b64 = base64.b64encode(audio_data).decode()
-        html = f"""
-        <audio autoplay>
-            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-        </audio>
-        """
-        components.html(html, height=0)
+def play_audio_autoplay(audio_data, show_controls=True):
+    """音声を自動再生（JavaScript強制再生 + controlsフォールバック）"""
+
+    if not audio_data:
+        return
+
+    b64 = base64.b64encode(audio_data).decode()
+
+    # JavaScript で明示的に play() を呼ぶ → autoplay制限を回避しやすい
+    # show_controls=True でプレイヤーも表示（ユーザーが手動再生できる）
+    controls_attr = "controls" if show_controls else ""
+    html = f"""
+    <audio id="tts_audio" {controls_attr} style="width:100%; margin-top:4px;">
+        <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+    </audio>
+    <script>
+    (function() {{
+        var audio = document.getElementById('tts_audio');
+        if (audio) {{
+            audio.play().catch(function(e) {{
+                console.log('Autoplay blocked:', e);
+            }});
+        }}
+    }})();
+    </script>
+    """
+    # height=60 でコントロールバーが見えるようにする
+    height = 60 if show_controls else 1
+    components.html(html, height=height)

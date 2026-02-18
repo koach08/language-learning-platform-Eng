@@ -26,6 +26,25 @@ def _get_course_id(user) -> str:
     return user.get('class_key')
 
 @require_auth
+def _play_web_speech_fallback(text: str, lang: str = "en-US", speed: float = 1.0):
+    """OpenAI TTS失敗時のブラウザ音声フォールバック"""
+    escaped = text.replace("'", "\\'").replace('"', '\\"').replace("\n", " ")
+    st.components.v1.html(
+        f"""<script>
+        (function() {{
+            window.speechSynthesis.cancel();
+            setTimeout(function() {{
+                var u = new SpeechSynthesisUtterance('{escaped}');
+                u.lang = '{lang}';
+                u.rate = {speed};
+                window.speechSynthesis.speak(u);
+            }}, 150);
+        }})();
+        </script>""",
+        height=0
+    )
+
+
 def show():
     user = get_current_user()
     
@@ -182,6 +201,9 @@ def show_chat_screen():
         audio = text_to_speech_openai(initial_message, voice="nova")
         if audio:
             play_audio_autoplay(audio)
+        else:
+            # フォールバック: Web Speech API
+            _play_web_speech_fallback(initial_message)
     
     # === メッセージ表示 ===
     for msg in st.session_state.chat_messages:
@@ -192,6 +214,8 @@ def show_chat_screen():
                     audio = text_to_speech_openai(msg["content"], voice="nova")
                     if audio:
                         play_audio_autoplay(audio)
+                    else:
+                        _play_web_speech_fallback(msg["content"])
         else:
             with st.chat_message("user", avatar="👤"):
                 st.markdown(msg["content"])
@@ -300,6 +324,8 @@ def process_user_input(user_input, situation_key, level, is_voice=False):
     audio = text_to_speech_openai(ai_response, voice="nova")
     if audio:
         play_audio_autoplay(audio)
+    else:
+        _play_web_speech_fallback(ai_response)
     
     st.rerun()
 

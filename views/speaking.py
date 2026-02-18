@@ -710,95 +710,343 @@ def show_practice_interface(material, user):
     st.markdown("---")
     st.markdown(f"### 📖 {material['title']}")
     st.caption(f"レベル: {material['level']} | 目安時間: {material['duration']}")
-    
-    # テキスト表示
-    st.markdown("#### 📝 テキスト")
-    st.text_area("", material['text'], height=200, disabled=True, key="practice_text_display")
-    
+
     # ヒント
     if material.get('tips'):
         st.info(f"💡 **ヒント:** {material['tips']}")
-    
-    # TTS（モデル音声）
-    st.markdown("#### 🔊 モデル音声 / Model Audio")
-    from utils.tts_natural import show_tts_player
-    show_tts_player(material['text'], key_prefix=f"model_{material['id']}")
-    
+
+    # ===== 練習モード切り替えタブ =====
+    mode_tab1, mode_tab2 = st.tabs(["📖 全文練習", "🎯 1センテンスずつ練習"])
+
+    # ----------------------------------------
+    # タブ1: 既存の全文練習（変更なし）
+    # ----------------------------------------
+    with mode_tab1:
+        # テキスト表示
+        st.markdown("#### 📝 テキスト")
+        st.text_area("", material['text'], height=200, disabled=True, key="practice_text_display")
+
+        # TTS（モデル音声）
+        st.markdown("#### 🔊 モデル音声 / Model Audio")
+        from utils.tts_natural import show_tts_player
+        show_tts_player(material['text'], key_prefix=f"model_{material['id']}")
+
+        st.markdown("---")
+
+        # 録音（マイク直接）
+        st.markdown("#### 🎙️ 録音 / Record Your Voice")
+        st.caption("マイクボタンを押して録音 → もう一度押して停止。すぐに評価されます。")
+
+        try:
+            from utils.mic_recorder import show_mic_or_upload
+            audio_bytes = show_mic_or_upload(key_prefix=f"read_{material['id']}", allow_upload=False)
+        except Exception:
+            audio_bytes = None
+            uploaded_audio = st.file_uploader(
+                "音声ファイルをアップロード（WAV, MP3, M4A）",
+                type=['wav', 'mp3', 'm4a'],
+                key=f"audio_{material['id']}"
+            )
+            if uploaded_audio:
+                audio_bytes = uploaded_audio.read()
+                st.audio(audio_bytes)
+
+        if audio_bytes:
+            if st.button("📊 評価する", type="primary", key=f"eval_{material['id']}"):
+                with loading_with_tips("音声を評価しています... / Evaluating your pronunciation...", context="evaluation"):
+                    try:
+                        from utils.speech_eval import evaluate_pronunciation, get_feedback
+                        result = evaluate_pronunciation(audio_bytes, material['text'])
+
+                        if result.get("success"):
+                            scores = result.get("scores", {})
+                            score = scores.get("overall", 0)
+                            pronunciation = scores.get("accuracy", 0)
+                            fluency = scores.get("fluency", 0)
+                            completeness = scores.get("completeness", 0)
+                            prosody = scores.get("prosody", 0)
+                        else:
+                            st.error(f"評価エラー: {result.get('error', '不明なエラー')}")
+                            return
+                    except Exception as e:
+                        st.error(f"音声評価サービスに接続できませんでした: {e}")
+                        return
+
+                    st.success("評価完了！")
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("総合スコア", f"{score:.0f}点")
+                    with col2:
+                        st.metric("発音", f"{pronunciation:.0f}点")
+                    with col3:
+                        st.metric("流暢さ", f"{fluency:.0f}点")
+                    with col4:
+                        st.metric("完全性", f"{completeness:.0f}点")
+
+                    # フィードバック
+                    if score >= 85:
+                        st.success("Excellent! Very clear pronunciation. 素晴らしい発音です！")
+                    elif score >= 70:
+                        st.info("Good job! Try to focus on smoother transitions between words. 単語のつなぎをもう少し滑らかに。")
+                    else:
+                        st.warning("Keep practicing! Listen to the model audio and try again. お手本を聞いてもう一度挑戦！")
+
+                    # CEFR判定
+                    if score >= 85:
+                        cefr = "B2-C1"
+                    elif score >= 70:
+                        cefr = "B1-B2"
+                    elif score >= 55:
+                        cefr = "A2-B1"
+                    else:
+                        cefr = "A1-A2"
+
+                    st.info(f"**CEFRレベル目安:** {cefr}")
+
+                    # 練習履歴に保存
+                    save_practice_history(user, material, score, pronunciation, fluency)
+
+    # ----------------------------------------
+    # タブ2: 1センテンスずつ練習（新規）
+    # ----------------------------------------
+    with mode_tab2:
+        _show_sentence_by_sentence_practice(material, user)
+
+
+def _split_sentences(text):
+    """テキストを文単位に分割（空行・改行対応）"""
+    import re
+    # 改行で分割 → さらに ".!?" で分割
+    lines = text.strip().splitlines()
+    sentences = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # ピリオド・感嘆符・疑問符で分割（省略符 ... は保持）
+        parts = re.split(r'(?<=[.!?])\s+', line)
+        for part in parts:
+            part = part.strip()
+            if part:
+                sentences.append(part)
+    return sentences
+
+
+def _show_sentence_by_sentence_practice(material, user):
+    """1センテンスずつ練習モード（Speakアプリ風）"""
+    from utils.tts_natural import generate_natural_audio, VOICE_OPTIONS, DEFAULT_VOICE
+    import base64
+
+    sentences = _split_sentences(material['text'])
+    if not sentences:
+        st.warning("テキストが見つかりません。")
+        return
+
+    total = len(sentences)
+    mat_id = material['id']
+
+    # ===== セッション状態の初期化 =====
+    idx_key = f"sbs_idx_{mat_id}"
+    scores_key = f"sbs_scores_{mat_id}"
+    voice_key_k = f"sbs_voice_{mat_id}"
+    speed_key_k = f"sbs_speed_{mat_id}"
+
+    if idx_key not in st.session_state:
+        st.session_state[idx_key] = 0
+    if scores_key not in st.session_state:
+        st.session_state[scores_key] = {}
+    if voice_key_k not in st.session_state:
+        st.session_state[voice_key_k] = DEFAULT_VOICE
+    if speed_key_k not in st.session_state:
+        st.session_state[speed_key_k] = 1.0
+
+    idx = st.session_state[idx_key]
+    idx = max(0, min(idx, total - 1))  # 範囲チェック
+
+    # ===== 音声設定（上部に一度だけ表示） =====
+    with st.expander("🎛️ 音声設定", expanded=False):
+        col_v, col_s = st.columns(2)
+        with col_v:
+            selected_voice = st.selectbox(
+                "音声",
+                list(VOICE_OPTIONS.keys()),
+                index=list(VOICE_OPTIONS.keys()).index(st.session_state[voice_key_k]),
+                key=f"sbs_voice_sel_{mat_id}"
+            )
+            st.session_state[voice_key_k] = selected_voice
+        with col_s:
+            selected_speed = st.select_slider(
+                "速度",
+                options=[0.5, 0.75, 0.85, 1.0, 1.15, 1.25, 1.5],
+                value=st.session_state[speed_key_k],
+                format_func=lambda x: f"{x}x",
+                key=f"sbs_speed_sel_{mat_id}"
+            )
+            st.session_state[speed_key_k] = selected_speed
+
+    voice = st.session_state[voice_key_k]
+    speed = st.session_state[speed_key_k]
+
+    # ===== 進捗バー =====
+    st.markdown(f"**進捗: {idx + 1} / {total} センテンス**")
+    st.progress((idx + 1) / total)
+
+    # ===== 現在の文を大きく表示 =====
+    current_sentence = sentences[idx]
     st.markdown("---")
-    
-    # 録音（マイク直接）
-    st.markdown("#### 🎙️ 録音 / Record Your Voice")
-    st.caption("マイクボタンを押して録音 → もう一度押して停止。すぐに評価されます。")
-    
+    st.markdown(
+        f"""
+        <div style="
+            background: #f0f4ff;
+            border-left: 4px solid #4a90d9;
+            border-radius: 8px;
+            padding: 16px 20px;
+            font-size: 1.3em;
+            line-height: 1.6;
+            margin: 8px 0 16px 0;
+        ">
+            {current_sentence}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # ===== ステップ表示 =====
+    st.markdown("**① モデル音声を聴く → ② 真似して録音 → ③ 採点**")
+
+    # --- ① モデル音声再生 ---
+    col_play, col_stop = st.columns([1, 1])
+    with col_play:
+        if st.button("🔊 モデル音声を再生", key=f"sbs_play_{mat_id}_{idx}", use_container_width=True):
+            with st.spinner("音声を生成中..."):
+                audio_data = generate_natural_audio(current_sentence, voice, speed)
+            if audio_data:
+                b64 = base64.b64encode(audio_data).decode()
+                st.markdown(
+                    f'<audio controls autoplay style="width:100%">'
+                    f'<source src="data:audio/mp3;base64,{b64}" type="audio/mp3">'
+                    f'</audio>',
+                    unsafe_allow_html=True
+                )
+            else:
+                # フォールバック: Web Speech API
+                escaped = current_sentence.replace("'", "\\'").replace('"', '\\"')
+                st.components.v1.html(
+                    f"""<script>
+                    window.speechSynthesis.cancel();
+                    setTimeout(function(){{
+                        var u = new SpeechSynthesisUtterance('{escaped}');
+                        u.lang = 'en-US'; u.rate = {speed};
+                        window.speechSynthesis.speak(u);
+                    }}, 100);
+                    </script>""",
+                    height=0
+                )
+                st.caption("⚠️ ブラウザ音声で再生中")
+    with col_stop:
+        if st.button("⏹️ 停止", key=f"sbs_stop_{mat_id}_{idx}", use_container_width=True):
+            st.components.v1.html(
+                "<script>window.speechSynthesis.cancel();"
+                "document.querySelectorAll('audio').forEach(a=>{a.pause();a.currentTime=0;});"
+                "</script>",
+                height=0
+            )
+
+    # --- ② 録音 ---
+    st.markdown("---")
+    st.markdown("**🎙️ 真似して録音してください**")
+    st.caption("録音ボタンを押してスタート → もう一度押して停止")
+
+    audio_bytes = None
     try:
         from utils.mic_recorder import show_mic_or_upload
-        audio_bytes = show_mic_or_upload(key_prefix=f"read_{material['id']}", allow_upload=False)
+        audio_bytes = show_mic_or_upload(key_prefix=f"sbs_rec_{mat_id}_{idx}", allow_upload=False)
     except Exception:
-        audio_bytes = None
-        uploaded_audio = st.file_uploader(
-            "音声ファイルをアップロード（WAV, MP3, M4A）",
+        uploaded = st.file_uploader(
+            "音声ファイルをアップロード（WAV/MP3/M4A）",
             type=['wav', 'mp3', 'm4a'],
-            key=f"audio_{material['id']}"
+            key=f"sbs_upload_{mat_id}_{idx}"
         )
-        if uploaded_audio:
-            audio_bytes = uploaded_audio.read()
+        if uploaded:
+            audio_bytes = uploaded.read()
             st.audio(audio_bytes)
-    
+
+    # --- ③ 採点 ---
     if audio_bytes:
-        if st.button("📊 評価する", type="primary", key=f"eval_{material['id']}"):
-            with loading_with_tips("音声を評価しています... / Evaluating your pronunciation...", context="evaluation"):
+        if st.button("📊 採点する", type="primary", key=f"sbs_eval_{mat_id}_{idx}"):
+            with st.spinner("採点中..."):
                 try:
-                    from utils.speech_eval import evaluate_pronunciation, get_feedback
-                    result = evaluate_pronunciation(audio_bytes, material['text'])
-                    
+                    from utils.speech_eval import evaluate_pronunciation
+                    result = evaluate_pronunciation(audio_bytes, current_sentence)
+
                     if result.get("success"):
                         scores = result.get("scores", {})
                         score = scores.get("overall", 0)
                         pronunciation = scores.get("accuracy", 0)
                         fluency = scores.get("fluency", 0)
-                        completeness = scores.get("completeness", 0)
-                        prosody = scores.get("prosody", 0)
+
+                        # スコアをセッションに記録
+                        st.session_state[scores_key][idx] = {
+                            "sentence": current_sentence,
+                            "score": score,
+                            "pronunciation": pronunciation,
+                            "fluency": fluency,
+                        }
+
+                        # スコア表示
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            st.metric("総合", f"{score:.0f}点")
+                        with c2:
+                            st.metric("発音", f"{pronunciation:.0f}点")
+                        with c3:
+                            st.metric("流暢さ", f"{fluency:.0f}点")
+
+                        if score >= 85:
+                            st.success("🎉 Excellent! Perfect imitation!")
+                        elif score >= 70:
+                            st.info("👍 Good! Listen again and try once more.")
+                        else:
+                            st.warning("🔁 Listen to the model again and try to copy the rhythm.")
                     else:
-                        st.error(f"評価エラー: {result.get('error', '不明なエラー')}")
-                        return
+                        st.error(f"採点エラー: {result.get('error', '不明なエラー')}")
                 except Exception as e:
-                    st.error(f"音声評価サービスに接続できませんでした: {e}")
-                    return
-                
-                st.success("評価完了！")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("総合スコア", f"{score:.0f}点")
-                with col2:
-                    st.metric("発音", f"{pronunciation:.0f}点")
-                with col3:
-                    st.metric("流暢さ", f"{fluency:.0f}点")
-                with col4:
-                    st.metric("完全性", f"{completeness:.0f}点")
-                
-                # フィードバック
-                if score >= 85:
-                    st.success("Excellent! Very clear pronunciation. 素晴らしい発音です！")
-                elif score >= 70:
-                    st.info("Good job! Try to focus on smoother transitions between words. 単語のつなぎをもう少し滑らかに。")
-                else:
-                    st.warning("Keep practicing! Listen to the model audio and try again. お手本を聞いてもう一度挑戦！")
-                
-                # CEFR判定
-                if score >= 85:
-                    cefr = "B2-C1"
-                elif score >= 70:
-                    cefr = "B1-B2"
-                elif score >= 55:
-                    cefr = "A2-B1"
-                else:
-                    cefr = "A1-A2"
-                
-                st.info(f"**CEFRレベル目安:** {cefr}")
-                
-                # 練習履歴に保存
-                save_practice_history(user, material, score, pronunciation, fluency)
+                    st.error(f"音声評価に接続できませんでした: {e}")
+
+    # ===== ナビゲーションボタン =====
+    st.markdown("---")
+    nav_col1, nav_col2, nav_col3 = st.columns([1, 2, 1])
+    with nav_col1:
+        if idx > 0:
+            if st.button("⬅️ 前の文", key=f"sbs_prev_{mat_id}_{idx}", use_container_width=True):
+                st.session_state[idx_key] = idx - 1
+                st.rerun()
+    with nav_col2:
+        # 全センテンスのスコアサマリー
+        recorded = st.session_state[scores_key]
+        if recorded:
+            avg_score = sum(v['score'] for v in recorded.values()) / len(recorded)
+            st.markdown(
+                f"<div style='text-align:center; color:#666;'>完了: {len(recorded)}/{total}文 | 平均スコア: {avg_score:.0f}点</div>",
+                unsafe_allow_html=True
+            )
+    with nav_col3:
+        if idx < total - 1:
+            if st.button("次の文 ➡️", key=f"sbs_next_{mat_id}_{idx}", use_container_width=True):
+                st.session_state[idx_key] = idx + 1
+                st.rerun()
+        else:
+            if st.button("✅ 完了", key=f"sbs_done_{mat_id}", use_container_width=True, type="primary"):
+                st.session_state[idx_key] = 0  # リセット
+                st.balloons()
+                st.success("🎉 全センテンスの練習完了！お疲れ様でした。")
+
+    # ===== 最初に戻るボタン =====
+    if idx > 0:
+        if st.button("🔄 最初のセンテンスに戻る", key=f"sbs_reset_{mat_id}"):
+            st.session_state[idx_key] = 0
+            st.rerun()
 
 
 def save_practice_history(user, material, score, pronunciation, fluency):
