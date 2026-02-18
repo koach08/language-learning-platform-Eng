@@ -32,7 +32,8 @@ from views import writing_submit as writing
 def safe_import(module_name):
     try:
         return __import__(f"views.{module_name}", fromlist=[module_name])
-    except ImportError:
+    except Exception as e:
+        st.warning(f"⚠️ モジュール '{module_name}' の読み込みに失敗: {e}")
         return None
 
 
