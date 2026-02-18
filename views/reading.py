@@ -465,10 +465,18 @@ def _save_reading_quiz_to_db(questions, score_pct):
                 course_id = None
         
         # 記事情報を取得
-        article = st.session_state.get('current_article') or st.session_state.get('student_article', {})
-        title = article.get('title', 'Unknown')
-        level = article.get('level', 'B1')
-        word_count = article.get('word_count', 0)
+        # current_articleはキー文字列なので、materialsから実際のデータを取得
+        article_key = st.session_state.get('current_article')
+        if article_key and isinstance(article_key, str):
+            from utils.materials_loader import load_materials
+            articles = load_materials('reading')
+            article = articles.get(article_key, {})
+        else:
+            article = st.session_state.get('student_article') or {}
+
+        title = article.get('title', 'Unknown') if isinstance(article, dict) else 'Unknown'
+        level = article.get('level', 'B1') if isinstance(article, dict) else 'B1'
+        word_count = article.get('word_count', 0) if isinstance(article, dict) else 0
         
         # 各問題の正誤を記録
         quiz_results = []
