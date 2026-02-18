@@ -377,15 +377,14 @@ def show_recommendations(enabled_modules):
 
 def show_learning_modules(enabled_modules):
     st.markdown("### 📚 学習モジュール")
-    st.caption("各モジュールをクリックして学習を始めましょう")
 
     all_modules = [
-        {"key": "speaking", "icon": "🗣️", "name": "Speaking", "desc": "会話・発音"},
-        {"key": "writing", "icon": "✍️", "name": "Writing", "desc": "ライティング"},
-        {"key": "reading", "icon": "📖", "name": "Reading", "desc": "読解"},
-        {"key": "listening", "icon": "🎧", "name": "Listening", "desc": "リスニング"},
-        {"key": "vocabulary", "icon": "📚", "name": "Vocabulary", "desc": "語彙"},
-        {"key": "test_prep", "icon": "📝", "name": "検定対策", "desc": "TOEFL/TOEIC"},
+        {"key": "speaking",   "icon": "🗣️", "name": "Speaking",   "desc": "発音・会話・音読練習",  "color": "#4F8EF7", "bg": "#EEF4FF"},
+        {"key": "writing",    "icon": "✍️",  "name": "Writing",    "desc": "ライティング・作文",    "color": "#F76B4F", "bg": "#FFF2EF"},
+        {"key": "reading",    "icon": "📖",  "name": "Reading",    "desc": "読解・速読トレーニング", "color": "#3DBD7D", "bg": "#EDFBF3"},
+        {"key": "listening",  "icon": "🎧",  "name": "Listening",  "desc": "リスニング強化",         "color": "#F7B84F", "bg": "#FFFAEF"},
+        {"key": "vocabulary", "icon": "📚",  "name": "Vocabulary", "desc": "語彙・単語帳",           "color": "#A04FF7", "bg": "#F5EFFF"},
+        {"key": "test_prep",  "icon": "📝",  "name": "検定対策",    "desc": "TOEFL / TOEIC / 英検",  "color": "#F74F8E", "bg": "#FFEFF5"},
     ]
 
     modules = [m for m in all_modules if m['key'] in enabled_modules]
@@ -394,26 +393,84 @@ def show_learning_modules(enabled_modules):
         st.info("このクラスで有効なモジュールはまだ設定されていません")
         return
 
+    # カードCSSを一度だけ注入
+    st.markdown("""
+    <style>
+    .module-card {
+        background: var(--card-bg);
+        border: 1.5px solid transparent;
+        border-radius: 16px;
+        padding: 24px 16px 20px;
+        text-align: center;
+        cursor: pointer;
+        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+        margin-bottom: 12px;
+        user-select: none;
+        position: relative;
+        overflow: hidden;
+    }
+    .module-card::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 4px;
+        background: var(--card-accent);
+        border-radius: 16px 16px 0 0;
+    }
+    .module-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+        border-color: var(--card-accent);
+    }
+    .module-card:active {
+        transform: translateY(-1px);
+    }
+    .module-card .card-icon {
+        font-size: 2.2rem;
+        display: block;
+        margin-bottom: 8px;
+        line-height: 1;
+    }
+    .module-card .card-name {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0 0 4px;
+    }
+    .module-card .card-desc {
+        font-size: 0.78rem;
+        color: #6b7280;
+        margin: 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     num_cols = min(len(modules), 3)
     cols = st.columns(num_cols)
     for i, mod in enumerate(modules):
         with cols[i % num_cols]:
+            # クリック可能なカードをボタンで実装（Streamlit制約のため）
             st.markdown(f"""
-            <div style="background: #f8f9fa; padding: 15px; border-radius: 10px;
-                        text-align: center; margin-bottom: 10px;
-                        border: 1px solid #e9ecef;">
-                <h2 style="margin:0;">{mod['icon']}</h2>
-                <p style="margin:5px 0; font-weight: bold;">{mod['name']}</p>
-                <small style="color: #6c757d;">{mod['desc']}</small>
+            <div class="module-card"
+                 style="--card-bg:{mod['bg']}; --card-accent:{mod['color']};">
+                <span class="card-icon">{mod['icon']}</span>
+                <p class="card-name">{mod['name']}</p>
+                <p class="card-desc">{mod['desc']}</p>
             </div>
             """, unsafe_allow_html=True)
-            if st.button(f"開く", key=f"mod_{mod['key']}", use_container_width=True):
+            # カード直下に透明ボタン（カードクリックの代替）
+            if st.button(
+                f"{mod['icon']} {mod['name']}に進む",
+                key=f"mod_{mod['key']}",
+                use_container_width=True,
+                type="primary" if i == 0 else "secondary",
+            ):
                 st.session_state['current_view'] = mod['key']
                 st.rerun()
 
     disabled_modules = [m for m in all_modules if m['key'] not in enabled_modules and m['key'] != 'test_prep']
     if disabled_modules:
-        st.caption(f"※ このクラスでは一部のモジュールが無効になっています")
+        st.caption("※ このクラスでは一部のモジュールが無効になっています")
 
     st.markdown("---")
 
