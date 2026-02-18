@@ -4,6 +4,7 @@ from utils.listening import (
     generate_audio_with_openai,
     generate_dialogue_audio_with_speakers,
     check_dictation,
+    check_youtube_dictation,
     generate_listening_from_prompt
 )
 from utils.materials_loader import load_materials
@@ -239,56 +240,54 @@ def show_student_view():
 
 
 def show_youtube_learning_student():
-    st.markdown("### 📺 YouTube動画で学習")
-    method = st.radio(
-        "学習方法を選択",
-        ["url", "curated"],
-        format_func=lambda x: {"url": "🔗 URLを入力", "curated": "📚 おすすめから選ぶ"}[x],
-        horizontal=True,
-        key="yt_method"
-    )
-    if method == "url":
-        show_youtube_url_input()
-    else:
-        show_curated_video_list()
+    st.markdown("### 📺 YouTube動画でディクテーション練習")
+    st.caption("好きな動画を見ながら、聞こえた英語を書き取ろう")
 
-
-def show_youtube_url_input():
-    st.markdown("💡 **ヒント:** 日本語で知っているテーマの英語動画を選ぶと効果的！")
     url = st.text_input("YouTube URL", placeholder="https://www.youtube.com/watch?v=...", key="s_yt_url_input")
-    col1, col2 = st.columns(2)
-    with col1:
-        video_title = st.text_input("動画タイトル（任意）", key="s_yt_title_input")
-    with col2:
-        level = st.select_slider("あなたのレベル", ["A2", "B1", "B2", "C1"], value="B1", key="s_yt_level_input")
+
     if url:
         video_id = extract_youtube_id(url)
         if video_id:
             st.video(url)
-            if st.button("🎓 この動画で学習を開始", type="primary", key="s_yt_start"):
-                with st.spinner("字幕を取得中..."):
-                    transcript_result = get_transcript_auto(video_id)
-                if not transcript_result.get("success"):
-                    st.error(f"❌ {transcript_result.get('error')}")
+            st.markdown("---")
+            st.info("💡 ① 動画を再生 → ② 聞こえた英語を入力 → ③「チェック」ボタンを押す")
+
+            user_input = st.text_area(
+                "聞こえた英語を入力してください（1文ずつでもOK）",
+                height=120,
+                placeholder="例: The human brain is an amazing organ...",
+                key="s_yt_dictation_input"
+            )
+
+            if st.button("✅ チェック", type="primary", key="s_yt_dictation_check"):
+                if not user_input.strip():
+                    st.warning("テキストを入力してからチェックしてください")
                 else:
-                    if transcript_result.get("method") == "whisper":
-                        st.info("🎤 AIで音声認識しました")
-                    transcript = transcript_result.get("transcript", "")
-                    with st.spinner("学習素材を生成中..."):
-                        difficulty = analyze_video_difficulty(transcript, level)
-                        exercises = generate_exercises_from_transcript(
-                            transcript, video_title or transcript_result.get("title", ""), level
-                        )
-                    if exercises.get("success"):
-                        st.session_state['s_yt_exercises'] = exercises
-                        st.session_state['s_yt_difficulty'] = difficulty
-                        st.session_state['s_yt_video_url'] = url
-                        st.success("✅ 準備完了！")
-                        st.rerun()
+                    with st.spinner("AIが添削中..."):
+                        result = check_youtube_dictation(user_input)
+                    if result.get("success"):
+                        feedback = result.get("feedback", {})
+                        score = feedback.get("score", 0)
+                        st.metric("スコア", f"{score}/100")
+                        if score >= 80:
+                            st.success("✅ よく書けています！")
+                        elif score >= 60:
+                            st.info("💪 もう少しです！")
+                        else:
+                            st.warning("🔄 もう一度聞いてみましょう")
+
+                        if feedback.get("corrections"):
+                            st.markdown("**修正箇所:**")
+                            for c in feedback["corrections"]:
+                                st.markdown(f"- ~~{c.get('original')}~~ → **{c.get('corrected')}** （{c.get('reason')}）")
+
+                        if feedback.get("good_points"):
+                            st.markdown(f"**良い点:** {feedback.get('good_points')}")
+
+                        if feedback.get("tip"):
+                            st.markdown(f"**💡 アドバイス:** {feedback.get('tip')}")
         else:
             st.warning("有効なYouTube URLを入力してください")
-    if 's_yt_exercises' in st.session_state:
-        show_student_youtube_content()
 
 
 def show_curated_video_list():

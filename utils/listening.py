@@ -520,3 +520,46 @@ def generate_dialogue_audio_with_speakers(script, speakers_info=None):
     else:
         voice_mapping = {"A": "nova", "B": "echo", "C": "shimmer", "D": "onyx", "narrator": "alloy"}
     return generate_dialogue_audio(script, voice_mapping)
+
+
+def check_youtube_dictation(user_text):
+    """YouTubeディクテーションのAI添削"""
+    client = get_openai_client()
+    prompt = f"""A Japanese university student wrote the following while watching an English YouTube video (dictation practice).
+Check their writing and provide feedback.
+
+Student's input:
+{user_text}
+
+Respond in JSON format:
+{{
+    "score": <0-100, based on grammar, spelling, natural expression>,
+    "corrections": [
+        {{
+            "original": "<what the student wrote>",
+            "corrected": "<corrected version>",
+            "reason": "<brief reason in Japanese>"
+        }}
+    ],
+    "good_points": "<what they did well, in Japanese>",
+    "tip": "<one practical tip for improvement, in Japanese>"
+}}
+
+If the input looks correct with no issues, return an empty corrections list and a high score.
+Keep feedback encouraging and concise."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful English teacher giving encouraging feedback. Respond in valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        result = json.loads(response.choices[0].message.content)
+        result["success"] = True
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
