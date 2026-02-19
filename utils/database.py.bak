@@ -31,13 +31,24 @@ def clear_student_cache(student_id: str = None):
     _get_vocabulary_stats_cached.clear()
 
 
-def get_supabase_client() -> Client:
-    """Supabaseクライアントを取得（シングルトン）"""
-    if 'supabase_client' not in st.session_state:
-        url = st.secrets["supabase"]["url"]
-        key = st.secrets["supabase"]["anon_key"]
-        st.session_state.supabase_client = create_client(url, key)
-    return st.session_state.supabase_client
+def get_supabase_client(use_service_role: bool = True) -> Client:
+    """Supabaseクライアントを取得（シングルトン）
+    
+    use_service_role=True のとき service_role_key を使用（RLS回避・書き込み用）
+    デフォルトはTrue（全操作でRLSをバイパス）
+    """
+    if use_service_role:
+        if 'supabase_service_client' not in st.session_state:
+            url = st.secrets["supabase"]["url"]
+            key = st.secrets["supabase"]["service_role_key"]
+            st.session_state.supabase_service_client = create_client(url, key)
+        return st.session_state.supabase_service_client
+    else:
+        if 'supabase_client' not in st.session_state:
+            url = st.secrets["supabase"]["url"]
+            key = st.secrets["supabase"]["anon_key"]
+            st.session_state.supabase_client = create_client(url, key)
+        return st.session_state.supabase_client
 
 
 # ============================================================
@@ -197,6 +208,38 @@ def unenroll_student(student_id: str, course_id: str) -> bool:
         .eq('course_id', course_id)\
         .execute()
     return len(result.data) > 0
+
+
+def get_course_by_class_code(class_code: str) -> Optional[Dict]:
+    """クラスコードでコースを検索"""
+    supabase = get_supabase_client()
+    result = supabase.table('courses')\
+        .select('*')\
+        .eq('class_code', class_code)\
+        .eq('is_active', True)\
+        .execute()
+    return result.data[0] if result.data else None
+
+
+def get_student_enrollments(student_id: str) -> List[Dict]:
+    """学生の履修コース一覧を取得"""
+    supabase = get_supabase_client()
+    result = supabase.table('enrollments')\
+        .select('*, courses(*)')\
+        .eq('student_id', student_id)\
+        .execute()
+    return result.data
+
+
+def get_all_students() -> List[Dict]:
+    """全学生一覧を取得（教員用）"""
+    supabase = get_supabase_client()
+    result = supabase.table('users')\
+        .select('*')\
+        .eq('role', 'student')\
+        .order('name')\
+        .execute()
+    return result.data
 
 
 # ============================================================
@@ -430,6 +473,7 @@ def log_practice(student_id: str, module_type: str,
         'student_id': student_id,
         'course_id': course_id,
         'module_type': module_type,
+        'practiced_at': datetime.utcnow().isoformat(),  # 明示的にタイムスタンプを設定
         **kwargs
     }
     result = supabase.table('practice_logs').insert(log_data).execute()
@@ -1178,3 +1222,746 @@ def bulk_import_learning_resources(teacher_id: str, course_id: str,
     result = supabase.table('learning_resources').insert(rows).execute()
     _get_learning_resources_cached.clear()
     return len(result.data)
+
+
+# ============================================================
+# Student Profile Operations (学生プロフィール)
+# ============================================================
+
+def get_student_profile(user_id: str) -> Optional[Dict]:
+    """学生プロフィールを取得"""
+    supabase = get_supabase_client()
+    result = supabase.table('student_profiles')\
+        .select('*').eq('user_id', user_id).execute()
+    return result.data[0] if result.data else None
+
+
+def upsert_student_profile(user_id: str, profile_data: Dict) -> Dict:
+    """学生プロフィールを作成/更新"""
+    supabase = get_supabase_client()
+    data = {
+        'user_id': user_id,
+        **profile_data,
+        'updated_at': datetime.utcnow().isoformat(),
+    }
+    result = supabase.table('student_profiles').upsert(
+        data, on_conflict='user_id'
+    ).execute()
+    return result.data[0] if result.data else None
+
+
+def get_course_student_profiles(course_id: str) -> List[Dict]:
+    """コースの全学生プロフィールを取得（教員用）"""
+    supabase = get_supabase_client()
+    # enrollmentsを経由して取得
+    result = supabase.table('enrollments')\
+        .select('student_id, users(id, name, email, student_id)')\
+        .eq('course_id', course_id)\
+        .execute()
+
+    user_ids = []
+    user_map = {}
+    for e in result.data:
+        u = e.get('users')
+        if u:
+            user_ids.append(u['id'])
+            user_map[u['id']] = u
+
+    if not user_ids:
+        return []
+
+    # student_profilesから一括取得
+    profiles_result = supabase.table('student_profiles')\
+        .select('*')\
+        .in_('user_id', user_ids)\
+        .execute()
+
+    profile_map = {p['user_id']: p for p in profiles_result.data}
+
+    # user情報とprofileをマージ
+    merged = []
+    for uid in user_ids:
+        u = user_map.get(uid, {})
+        p = profile_map.get(uid, {})
+        merged.append({**u, 'profile': p})
+
+    return merged
+
+
+# ============================================================
+# Course Submissions (教員用: コースの提出物一覧)
+# ============================================================
+
+def get_course_submissions(course_id: str, limit: int = 20) -> List[Dict]:
+    """コースの最近の提出物を取得"""
+    supabase = get_supabase_client()
+    result = supabase.table('submissions')\
+        .select('*, users(name, email, student_id)')\
+        .eq('course_id', course_id)\
+        .order('created_at', desc=True)\
+        .limit(limit)\
+        .execute()
+    return result.data
+
+
+# ============================================================
+# Dashboard / Alert Aggregate Functions (Phase 1追加)
+# ============================================================
+
+def get_students_with_activity_summary(course_id: str) -> List[Dict]:
+    """コース学生の活動サマリーを取得（教員アラート・ダッシュボード用）
+    
+    enrollments + users + practice_logs + submissions をJOINし、
+    各学生の最終ログイン、提出率、平均スコア、最近の学習時間を計算する。
+    """
+    supabase = get_supabase_client()
+    
+    # 1. コースの学生一覧を取得
+    enrollments = supabase.table('enrollments')\
+        .select('student_id, users(id, name, email, student_id, last_login)')\
+        .eq('course_id', course_id)\
+        .execute()
+    
+    if not enrollments.data:
+        return []
+    
+    # 2. コースの課題数を取得
+    assignments = supabase.table('assignments')\
+        .select('id')\
+        .eq('course_id', course_id)\
+        .execute()
+    total_assignments = len(assignments.data) if assignments.data else 0
+    
+    # 3. 各学生の情報を集計
+    students_summary = []
+    now = datetime.utcnow()
+    week_ago = (now - timedelta(days=7)).isoformat()
+    assignment_ids = [a["id"] for a in (assignments.data or [])]
+    
+    for enrollment in enrollments.data:
+        user = enrollment.get('users')
+        if not user:
+            continue
+        
+        student_id = user['id']
+        
+        # 提出数を取得（assignmentsのIDリスト経由）
+        subs_data = []
+        for aid in assignment_ids:
+            s = supabase.table('submissions')\
+                .select('id, total_score')\
+                .eq('student_id', student_id)\
+                .eq('assignment_id', aid)\
+                .execute()
+            subs_data.extend(s.data or [])
+        submission_count = len(subs_data)
+        
+        # 平均スコア
+        scores = []
+        for s in (subs_data or []):
+            sc = s.get('total_score')
+            if sc and sc > 0:
+                scores.append(sc)
+        avg_score = sum(scores) / len(scores) if scores else 0
+        
+        # 最近の練習ログ
+        logs = supabase.table('practice_logs')\
+            .select('practiced_at, duration_seconds, score')\
+            .eq('student_id', student_id)\
+            .gte('practiced_at', week_ago)\
+            .execute()
+        
+        practice_count = len(logs.data) if logs.data else 0
+        weekly_seconds = sum(
+            (l.get('duration_seconds') or 0) for l in (logs.data or [])
+        )
+        
+        # スコアトレンド（直近と過去を比較 — 簡易版）
+        recent_scores = [l.get('score') for l in (logs.data or []) if l.get('score')]
+        score_trend = 0  # TODO: 過去月と比較して算出
+        
+        # 最終ログイン日
+        last_login_str = user.get('last_login')
+        if last_login_str:
+            try:
+                last_login = datetime.fromisoformat(last_login_str.replace('Z', '+00:00'))
+                days_inactive = (now - last_login.replace(tzinfo=None)).days
+            except (ValueError, TypeError):
+                days_inactive = 99
+        else:
+            days_inactive = 99
+        
+        students_summary.append({
+            'name': user.get('name', '名前未設定'),
+            'student_id': user.get('student_id', ''),
+            'user_id': student_id,
+            'email': user.get('email', ''),
+            'last_login': last_login_str or '',
+            'days_since_active': days_inactive,
+            'submissions': submission_count,
+            'total_assignments': total_assignments,
+            'avg_score': round(avg_score, 1),
+            'score_trend': score_trend,
+            'practice_count': practice_count,
+            'weekly_study_minutes': round(weekly_seconds / 60),
+            'streak': 0,  # TODO: 連続学習日数の算出
+        })
+    
+    return students_summary
+
+
+def get_student_assignment_status(student_id: str, course_id: str) -> List[Dict]:
+    """学生の課題+提出状況を取得（学生ホーム用）
+    
+    assignments LEFT JOIN submissions で未提出/提出済/採点済を判定
+    """
+    supabase = get_supabase_client()
+    
+    # コースの課題一覧
+    assignments = supabase.table('assignments')\
+        .select('*')\
+        .eq('course_id', course_id)\
+        .order('due_date')\
+        .execute()
+    
+    if not assignments.data:
+        return []
+    
+    # 学生の提出物（assignment_id経由でフィルタ）
+    assignment_ids = [a['id'] for a in assignments.data]
+    all_subs = []
+    for aid in assignment_ids:
+        s = supabase.table('submissions')\
+            .select('*')\
+            .eq('student_id', student_id)\
+            .eq('assignment_id', aid)\
+            .execute()
+        all_subs.extend(s.data or [])
+    
+    submissions_data = all_subs
+    
+    sub_map = {}
+    for s in submissions_data:
+        aid = s.get('assignment_id')
+        if aid:
+            sub_map[aid] = s
+    
+    result = []
+    for a in assignments.data:
+        sub = sub_map.get(a['id'])
+        if sub:
+            score = sub.get('total_score') or sub.get('score') or 0
+            has_feedback = bool(sub.get('feedback') or sub.get('teacher_comment'))
+            status = '採点済' if has_feedback else '提出済'
+        else:
+            score = 0
+            status = '未提出'
+        
+        result.append({
+            'assignment_id': a['id'],
+            'title': a.get('title', ''),
+            'type': a.get('assignment_type', ''),
+            'due_date': a.get('due_date', ''),
+            'status': status,
+            'score': score,
+            'submission': sub,
+        })
+    
+    return result
+
+
+def get_student_recent_activity(student_id: str, limit: int = 10) -> List[Dict]:
+    """学生の最近の学習アクティビティを取得（学生ホーム用）
+    
+    practice_logs + submissions から最新のものを取得
+    """
+    supabase = get_supabase_client()
+    
+    # 練習ログ
+    logs = supabase.table('practice_logs')\
+        .select('*')\
+        .eq('student_id', student_id)\
+        .order('practiced_at', desc=True)\
+        .limit(limit)\
+        .execute()
+    
+    # 提出物
+    subs = supabase.table('submissions')\
+        .select('*, assignments(title)')\
+        .eq('student_id', student_id)\
+        .order('submitted_at', desc=True)\
+        .limit(limit)\
+        .execute()
+    
+    activities = []
+    
+    for log in (logs.data or []):
+        activities.append({
+            'type': 'practice',
+            'module': log.get('module_type', ''),
+            'score': log.get('score'),
+            'duration_seconds': log.get('duration_seconds'),
+            'timestamp': log.get('practiced_at', ''),
+            'description': f"{log.get('module_type', '')} 練習",
+        })
+    
+    for sub in (subs.data or []):
+        assignment = sub.get('assignments') or {}
+        activities.append({
+            'type': 'submission',
+            'module': sub.get('content_type', ''),
+            'score': sub.get('total_score') or sub.get('score'),
+            'timestamp': sub.get('submitted_at', ''),
+            'description': f"{assignment.get('title', '課題')} 提出",
+        })
+    
+    # タイムスタンプでソート
+    activities.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    
+    return activities[:limit]
+
+
+def get_course_chat_session_summary(course_id: str) -> Dict:
+    """コースのAI対話セッションのサマリー統計を取得（教員チャットログ用）"""
+    supabase = get_supabase_client()
+    
+    sessions = supabase.table('chat_sessions')\
+        .select('*, users(id, name, email, student_id)')\
+        .eq('course_id', course_id)\
+        .order('started_at', desc=True)\
+        .execute()
+    
+    if not sessions.data:
+        return {
+            'total_sessions': 0,
+            'active_students': 0,
+            'avg_score': 0,
+            'students': [],
+        }
+    
+    # 学生ごとに集計
+    student_map = {}
+    total_scores = []
+    
+    for s in sessions.data:
+        user = s.get('users') or {}
+        uid = user.get('id', '')
+        
+        if uid not in student_map:
+            student_map[uid] = {
+                'name': user.get('name', '不明'),
+                'student_id_display': user.get('student_id', ''),
+                'user_id': uid,
+                'sessions': [],
+                'scores': [],
+            }
+        
+        student_map[uid]['sessions'].append(s)
+        score = s.get('score') or s.get('total_score')
+        if score:
+            student_map[uid]['scores'].append(score)
+            total_scores.append(score)
+    
+    # 学生サマリーを構築
+    student_summaries = []
+    for uid, data in student_map.items():
+        avg = sum(data['scores']) / len(data['scores']) if data['scores'] else 0
+        
+        # 最終セッション
+        last_session = data['sessions'][0] if data['sessions'] else {}
+        last_active = last_session.get('started_at', '')
+        
+        # トレンド（簡易: 直近5回の平均 vs 全体平均）
+        recent = data['scores'][:5]
+        recent_avg = sum(recent) / len(recent) if recent else 0
+        trend = '↑' if recent_avg > avg + 2 else ('↓' if recent_avg < avg - 2 else '→')
+        
+        student_summaries.append({
+            'name': data['name'],
+            'id': data['student_id_display'],
+            'user_id': uid,
+            'sessions': len(data['sessions']),
+            'avg_score': round(avg, 1),
+            'last_active': last_active,
+            'trend': trend,
+            'recent_sessions': data['sessions'][:5],
+        })
+    
+    # セッション数でソート
+    student_summaries.sort(key=lambda x: x['sessions'], reverse=True)
+    
+    return {
+        'total_sessions': len(sessions.data),
+        'active_students': len(student_map),
+        'avg_score': round(sum(total_scores) / len(total_scores), 1) if total_scores else 0,
+        'students': student_summaries,
+    }
+
+
+# ============================================================
+# Reading Logs (リーディング学習記録)
+# ============================================================
+
+def log_reading(student_id: str, course_id: str = None, **kwargs) -> Dict:
+    """リーディング学習をreading_logsに記録
+    
+    kwargs:
+        source_title, source_url, word_count, estimated_level,
+        activity_type ('assigned'|'extensive'|'intensive'),
+        quiz_results (list of dicts), quiz_score (float),
+        time_spent_seconds, personal_notes, rating
+    """
+    supabase = get_supabase_client()
+    log_data = {
+        'student_id': student_id,
+        'course_id': course_id,
+        **kwargs
+    }
+    result = supabase.table('reading_logs').insert(log_data).execute()
+    return result.data[0] if result.data else None
+
+
+def get_student_reading_logs(student_id: str, days: int = 30, 
+                              course_id: str = None) -> List[Dict]:
+    """学生のリーディング履歴を取得"""
+    supabase = get_supabase_client()
+    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    
+    query = supabase.table('reading_logs')\
+        .select('*')\
+        .eq('student_id', student_id)\
+        .gte('completed_at', since)\
+        .order('completed_at', desc=True)
+    
+    if course_id:
+        query = query.eq('course_id', course_id)
+    
+    result = query.execute()
+    return result.data if result.data else []
+
+
+# ============================================================
+# Listening Logs (リスニング学習記録)
+# ============================================================
+
+def log_listening(student_id: str, course_id: str = None, **kwargs) -> Dict:
+    """リスニング学習をlistening_logsに記録
+
+    kwargs:
+        video_url, video_title, video_duration_seconds, estimated_level,
+        activity_type ('assigned'|'extensive'|'practice'),
+        pre_listening (dict), while_listening (dict), post_listening (dict),
+        quiz_results (list of dicts), quiz_score (float),
+        time_spent_seconds, api_cost
+    """
+    supabase = get_supabase_client()
+    log_data = {
+        'student_id': student_id,
+        'course_id': course_id,
+        **kwargs
+    }
+    result = supabase.table('listening_logs').insert(log_data).execute()
+    return result.data[0] if result.data else None
+
+
+def get_student_listening_logs(student_id: str, days: int = 30,
+                                course_id: str = None) -> List[Dict]:
+    """学生のリスニング履歴を取得"""
+    supabase = get_supabase_client()
+    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    
+    query = supabase.table('listening_logs')\
+        .select('*')\
+        .eq('student_id', student_id)\
+        .gte('completed_at', since)\
+        .order('completed_at', desc=True)
+    
+    if course_id:
+        query = query.eq('course_id', course_id)
+    
+    result = query.execute()
+    return result.data if result.data else []
+
+
+def get_listening_stats_for_course(course_id: str) -> List[Dict]:
+    """コース内の学生リスニング統計を取得（教員用）"""
+    supabase = get_supabase_client()
+    try:
+        result = supabase.table('listening_logs')\
+            .select('student_id, quiz_score, time_spent_seconds, activity_type, completed_at')\
+            .eq('course_id', course_id)\
+            .order('completed_at', desc=True)\
+            .execute()
+        return result.data if result.data else []
+    except Exception:
+        return []
+
+
+# ============================================================
+# Learning Logs (授業外学習ログ)
+# ============================================================
+
+def save_learning_log(student_id: str, log_data: dict) -> Dict:
+    """授業外学習ログをDBに保存"""
+    supabase = get_supabase_client()
+    data = {
+        'student_id': student_id,
+        'log_date': log_data.get('date'),
+        'category': log_data.get('category'),
+        'language': log_data.get('language', 'english'),
+        'title': log_data.get('title'),
+        'description': log_data.get('description'),
+        'duration_minutes': log_data.get('duration_minutes', 0),
+        'points': log_data.get('points', 0),
+        'evidence_url': log_data.get('evidence_url'),
+        'evidence_file_name': log_data.get('evidence_file'),
+        'status': log_data.get('status', 'pending'),
+    }
+    result = supabase.table('learning_logs').insert(data).execute()
+    return result.data[0] if result.data else None
+
+
+def get_student_learning_logs(student_id: str, limit: int = 100) -> List[Dict]:
+    """学生の授業外学習ログを取得"""
+    supabase = get_supabase_client()
+    result = supabase.table('learning_logs')\
+        .select('*')\
+        .eq('student_id', student_id)\
+        .order('log_date', desc=True)\
+        .limit(limit)\
+        .execute()
+    return result.data if result.data else []
+
+
+def update_learning_log(log_id: str, updates: dict) -> Dict:
+    """授業外学習ログを更新"""
+    supabase = get_supabase_client()
+    result = supabase.table('learning_logs')\
+        .update(updates)\
+        .eq('id', log_id)\
+        .execute()
+    return result.data[0] if result.data else None
+
+
+def delete_learning_log(log_id: str) -> bool:
+    """授業外学習ログを削除"""
+    supabase = get_supabase_client()
+    try:
+        supabase.table('learning_logs')\
+            .delete()\
+            .eq('id', log_id)\
+            .execute()
+        return True
+    except Exception:
+        return False
+
+
+def get_learning_logs_for_course(course_id: str) -> List[Dict]:
+    """コース内の学生の授業外学習ログを取得（教員用）"""
+    supabase = get_supabase_client()
+    try:
+        # enrollmentsから学生ID一覧を取得してフィルタ
+        enrollments = supabase.table('enrollments')\
+            .select('student_id')\
+            .eq('course_id', course_id)\
+            .execute()
+        if not enrollments.data:
+            return []
+        student_ids = [e['student_id'] for e in enrollments.data]
+        result = supabase.table('learning_logs')\
+            .select('*, users(name, email)')\
+            .in_('student_id', student_ids)\
+            .order('log_date', desc=True)\
+            .limit(200)\
+            .execute()
+        return result.data if result.data else []
+    except Exception:
+        return []
+
+
+# ============================================================
+# Practice Logs Detail (練習ログ詳細取得)
+# ============================================================
+
+def get_student_practice_details(student_id: str, days: int = 30,
+                                  module_type: str = None) -> List[Dict]:
+    """学生の練習ログ詳細を取得（activity_details含む）"""
+    supabase = get_supabase_client()
+    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    
+    query = supabase.table('practice_logs')\
+        .select('*')\
+        .eq('student_id', student_id)\
+        .gte('practiced_at', since)\
+        .order('practiced_at', desc=True)
+    
+    if module_type:
+        query = query.eq('module_type', module_type)
+    
+    result = query.execute()
+    return result.data if result.data else []
+
+
+# ============================================================
+# Teacher Notes (教員メモ — 学生カルテ用)
+# ============================================================
+
+def get_teacher_note(teacher_id: str, student_id: str) -> Optional[Dict]:
+    """教員が特定の学生に対して保存したメモ・目標を取得"""
+    supabase = get_supabase_client()
+    try:
+        result = supabase.table('teacher_notes')\
+            .select('*')\
+            .eq('teacher_id', teacher_id)\
+            .eq('student_id', student_id)\
+            .execute()
+        return result.data[0] if result.data else None
+    except Exception:
+        return None
+
+
+def upsert_teacher_note(teacher_id: str, student_id: str,
+                        memo: str = '', goal: str = '') -> Optional[Dict]:
+    """教員メモを作成/更新"""
+    supabase = get_supabase_client()
+    data = {
+        'teacher_id': teacher_id,
+        'student_id': student_id,
+        'memo': memo,
+        'goal': goal,
+        'updated_at': datetime.utcnow().isoformat(),
+    }
+    try:
+        result = supabase.table('teacher_notes').upsert(
+            data, on_conflict='teacher_id,student_id'
+        ).execute()
+        return result.data[0] if result.data else None
+    except Exception:
+        return None
+
+
+# ============================================================
+# Learning Materials (教材データベース)
+# ============================================================
+
+def get_learning_materials(module_type: str, course_id: str = None,
+                           active_only: bool = True) -> List[Dict]:
+    """教材一覧を取得。course_id指定でコース専用教材も含む"""
+    supabase = get_supabase_client()
+    try:
+        query = supabase.table('learning_materials')\
+            .select('*')\
+            .eq('module_type', module_type)
+
+        if active_only:
+            query = query.eq('is_active', True)
+
+        query = query.order('sort_order').order('created_at')
+        result = query.execute()
+
+        if not result.data:
+            return []
+
+        # 共通教材 + コース専用教材をフィルタ
+        materials = []
+        for m in result.data:
+            if m.get('course_id') is None or m.get('course_id') == course_id:
+                materials.append(m)
+        return materials
+    except Exception:
+        return []
+
+
+def get_learning_material(material_id: str) -> Optional[Dict]:
+    """教材を1件取得"""
+    supabase = get_supabase_client()
+    try:
+        result = supabase.table('learning_materials')\
+            .select('*').eq('id', material_id).execute()
+        return result.data[0] if result.data else None
+    except Exception:
+        return None
+
+
+def upsert_learning_material(data: Dict) -> Optional[Dict]:
+    """教材を作成/更新"""
+    supabase = get_supabase_client()
+    data['updated_at'] = datetime.utcnow().isoformat()
+    try:
+        result = supabase.table('learning_materials').upsert(
+            data, on_conflict='module_type,material_key'
+        ).execute()
+        return result.data[0] if result.data else None
+    except Exception:
+        return None
+
+
+def delete_learning_material(material_id: str) -> bool:
+    """教材を削除（論理削除: is_active=False）"""
+    supabase = get_supabase_client()
+    try:
+        supabase.table('learning_materials')\
+            .update({'is_active': False, 'updated_at': datetime.utcnow().isoformat()})\
+            .eq('id', material_id).execute()
+        return True
+    except Exception:
+        return False
+
+
+def seed_default_materials() -> int:
+    """デモ教材をDBに投入（既存があればスキップ）"""
+    count = 0
+
+    # Listening
+    try:
+        from utils.listening import DEMO_LISTENING
+        for key, data in DEMO_LISTENING.items():
+            content = {k: v for k, v in data.items() if k not in ('title', 'level', 'category')}
+            result = upsert_learning_material({
+                'module_type': 'listening',
+                'material_key': key,
+                'title': data.get('title', key),
+                'level': data.get('level', 'B1'),
+                'category': data.get('category', ''),
+                'content': content,
+            })
+            if result:
+                count += 1
+    except Exception:
+        pass
+
+    # Reading
+    try:
+        from utils.reading import DEMO_ARTICLES
+        for key, data in DEMO_ARTICLES.items():
+            content = {k: v for k, v in data.items() if k not in ('title', 'level', 'category')}
+            result = upsert_learning_material({
+                'module_type': 'reading',
+                'material_key': key,
+                'title': data.get('title', key),
+                'level': data.get('level', 'B1'),
+                'category': data.get('category', ''),
+                'content': content,
+            })
+            if result:
+                count += 1
+    except Exception:
+        pass
+
+    # Vocabulary
+    try:
+        from utils.vocabulary import DEMO_WORD_LISTS
+        for key, data in DEMO_WORD_LISTS.items():
+            result = upsert_learning_material({
+                'module_type': 'vocabulary',
+                'material_key': key,
+                'title': data.get('name', key),
+                'description': data.get('description', ''),
+                'content': {'words': data.get('words', [])},
+            })
+            if result:
+                count += 1
+    except Exception:
+        pass
+
+    return count
