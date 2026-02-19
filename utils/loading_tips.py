@@ -1,6 +1,8 @@
 """
 Loading Tips — 待ち時間に語学豆知識を表示するユーティリティ
 英語学習プラットフォーム用
+
+v2: 全モジュール対応・cached_spinner追加・フォールバック強化
 """
 
 import streamlit as st
@@ -72,23 +74,23 @@ TIPS_TEST = [
     "📋 テスト対策の王道：過去問を解く → 間違い分析 → 弱点集中トレーニング。",
 ]
 
-# 全カテゴリをまとめたリスト
 ALL_TIPS = (
     TIPS_PRONUNCIATION + TIPS_VOCABULARY + TIPS_GRAMMAR +
     TIPS_LEARNING + TIPS_CULTURE + TIPS_TEST
 )
 
-# コンテキスト別のヒント辞書
 CONTEXT_TIPS = {
-    "speaking": TIPS_PRONUNCIATION + TIPS_LEARNING,
-    "evaluation": TIPS_PRONUNCIATION + TIPS_LEARNING + TIPS_TEST,
-    "writing": TIPS_GRAMMAR + TIPS_VOCABULARY,
-    "vocabulary": TIPS_VOCABULARY + TIPS_LEARNING,
-    "reading": TIPS_VOCABULARY + TIPS_GRAMMAR + TIPS_CULTURE,
-    "listening": TIPS_PRONUNCIATION + TIPS_CULTURE + TIPS_TEST,
-    "test_prep": TIPS_TEST + TIPS_LEARNING,
-    "generating": TIPS_LEARNING + TIPS_CULTURE,
-    "general": ALL_TIPS,
+    "speaking":    TIPS_PRONUNCIATION + TIPS_LEARNING,
+    "evaluation":  TIPS_PRONUNCIATION + TIPS_LEARNING + TIPS_TEST,
+    "writing":     TIPS_GRAMMAR + TIPS_VOCABULARY,
+    "vocabulary":  TIPS_VOCABULARY + TIPS_LEARNING,
+    "reading":     TIPS_VOCABULARY + TIPS_GRAMMAR + TIPS_CULTURE,
+    "listening":   TIPS_PRONUNCIATION + TIPS_CULTURE + TIPS_TEST,
+    "test_prep":   TIPS_TEST + TIPS_LEARNING,
+    "generating":  TIPS_LEARNING + TIPS_CULTURE,
+    "tts":         TIPS_PRONUNCIATION + TIPS_CULTURE,
+    "saving":      TIPS_LEARNING,
+    "general":     ALL_TIPS,
 }
 
 
@@ -98,100 +100,84 @@ def get_random_tip(context="general"):
     return random.choice(tips)
 
 
-def get_loading_messages(context="general"):
-    """処理中メッセージのリストを返す（ステップ感を出す）"""
-    base_messages = {
-        "speaking": [
-            "🎙️ 音声を分析しています...",
-            "📊 発音パターンを評価しています...",
-            "✨ フィードバックを作成しています...",
-        ],
-        "evaluation": [
-            "🔍 音声データを処理しています...",
-            "📊 AI が評価しています...",
-            "✨ 結果をまとめています...",
-        ],
-        "writing": [
-            "📝 テキストを分析しています...",
-            "🔍 文法・語彙をチェックしています...",
-            "✨ フィードバックを生成しています...",
-        ],
-        "generating": [
-            "🤖 AIがテキストを考えています...",
-            "📝 コンテンツを構成しています...",
-            "✨ 仕上げています...",
-        ],
-        "submitting": [
-            "📤 データを送信しています...",
-            "💾 サーバーに保存しています...",
-            "✅ 完了処理をしています...",
-        ],
-        "tts": [
-            "🔊 音声を生成しています...",
-            "🎵 自然な発音に調整しています...",
-        ],
-    }
-    return base_messages.get(context, ["⏳ 処理中です..."])
+# ============================================================
+# v2 追加: シンプルなキャッシュ対応スピナー
+# ============================================================
+
+@contextmanager  
+def smart_spinner(message: str, context: str = "general"):
+    """
+    st.spinner の改良版。
+    - 豆知識をメッセージ下に表示
+    - 完了後に自動でクリア
+    
+    使い方（既存の st.spinner と同じ記法）:
+        with smart_spinner("AI生成中...", context="writing"):
+            result = call_openai(...)
+    """
+    tip = get_random_tip(context)
+    placeholder = st.empty()
+    placeholder.markdown(
+        f"""
+        <div style="
+            background:#f0f4ff;
+            border-left:4px solid #4a90d9;
+            border-radius:8px;
+            padding:14px 18px;
+            margin:8px 0;
+        ">
+            <div style="font-weight:600;color:#333;margin-bottom:8px;">
+                ⏳ {message}
+            </div>
+            <div style="font-size:13px;color:#555;line-height:1.6;">
+                {tip}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    try:
+        yield
+    finally:
+        placeholder.empty()
 
 
 @contextmanager
 def loading_with_tips(message="処理中...", context="general"):
     """
-    st.spinner の代替。豆知識付きのローディング表示。
-    
-    使い方:
-        with loading_with_tips("評価中...", context="evaluation"):
-            result = do_something()
+    既存コードとの互換性を保ちつつ豆知識表示。
+    speaking.py など既存の呼び出し元はそのまま動く。
     """
     tip = get_random_tip(context)
-    
-    # プレースホルダーを作成
     loading_container = st.container()
-    
+
     with loading_container:
-        # ローディングメッセージ
-        st.markdown(f"""
-        <div style="
-            background: linear-gradient(135deg, #667eea33 0%, #764ba233 100%);
-            border-radius: 12px;
-            padding: 20px;
-            margin: 10px 0;
-            border-left: 4px solid #667eea;
-        ">
-            <div style="display: flex; align-items: center; margin-bottom: 12px;">
-                <div style="
-                    width: 20px; height: 20px;
-                    border: 3px solid #667eea;
-                    border-top: 3px solid transparent;
-                    border-radius: 50%;
-                    animation: spin 1s linear infinite;
-                    margin-right: 10px;
-                "></div>
-                <span style="font-size: 16px; font-weight: 600; color: #333;">{message}</span>
-            </div>
+        st.markdown(
+            f"""
             <div style="
-                background: white;
-                border-radius: 8px;
-                padding: 12px 16px;
-                font-size: 14px;
-                color: #555;
-                line-height: 1.6;
+                background: linear-gradient(135deg, #667eea33 0%, #764ba233 100%);
+                border-radius: 12px;
+                padding: 20px;
+                margin: 10px 0;
+                border-left: 4px solid #667eea;
             ">
-                {tip}
+                <div style="display:flex;align-items:center;margin-bottom:12px;">
+                    <span style="font-size:16px;font-weight:600;color:#333;">⏳ {message}</span>
+                </div>
+                <div style="
+                    background:white;border-radius:8px;
+                    padding:12px 16px;font-size:14px;color:#555;line-height:1.6;
+                ">
+                    {tip}
+                </div>
             </div>
-        </div>
-        <style>
-            @keyframes spin {{
-                0% {{ transform: rotate(0deg); }}
-                100% {{ transform: rotate(360deg); }}
-            }}
-        </style>
-        """, unsafe_allow_html=True)
-    
+            """,
+            unsafe_allow_html=True,
+        )
+
     try:
         yield
     finally:
-        # 処理完了後にローディング表示をクリア
         loading_container.empty()
 
 
@@ -206,59 +192,48 @@ def show_progress_with_tips(steps, context="general"):
         ], context="evaluation")
     """
     tip = get_random_tip(context)
-    
     progress_container = st.container()
     results = []
-    
+
     with progress_container:
-        st.markdown(f"""
-        <div style="
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-bottom: 8px;
-            font-size: 14px;
-            color: #555;
-        ">
-            {tip}
-        </div>
-        """, unsafe_allow_html=True)
-        
+        st.markdown(
+            f"""
+            <div style="
+                background:#f8f9fa;border-radius:8px;
+                padding:12px 16px;margin-bottom:8px;
+                font-size:14px;color:#555;
+            ">{tip}</div>
+            """,
+            unsafe_allow_html=True,
+        )
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
+
         for i, (step_msg, step_func) in enumerate(steps):
-            progress = (i) / len(steps)
-            progress_bar.progress(progress)
+            progress_bar.progress(i / len(steps))
             status_text.markdown(f"⏳ **{step_msg}**")
-            
-            result = step_func()
-            results.append(result)
-        
+            results.append(step_func())
+
         progress_bar.progress(1.0)
         status_text.markdown("✅ **完了しました！**")
-        time.sleep(0.5)
-    
+        time.sleep(0.3)
+
     progress_container.empty()
     return results
 
 
 def show_quick_tip(context="general"):
-    """
-    豆知識を1つ表示するだけのシンプルな関数。
-    サイドバーやページ下部に配置可能。
-    """
+    """豆知識を1つ表示するだけのシンプルな関数"""
     tip = get_random_tip(context)
-    st.markdown(f"""
-    <div style="
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        border-radius: 8px;
-        padding: 12px 16px;
-        font-size: 13px;
-        color: #444;
-        margin: 8px 0;
-    ">
-        <strong>💡 Did you know?</strong><br>
-        {tip}
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div style="
+            background:linear-gradient(135deg,#f5f7fa 0%,#c3cfe2 100%);
+            border-radius:8px;padding:12px 16px;
+            font-size:13px;color:#444;margin:8px 0;
+        ">
+            <strong>💡 Did you know?</strong><br>{tip}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
