@@ -515,6 +515,47 @@ def show_growth_record(student_id):
     except Exception as e:
         st.warning(f"成長データの取得に失敗: {e}")
 
+    # ===== スピーキング発音スコア推移グラフ =====
+    st.markdown("---")
+    st.markdown("#### 🎤 スピーキング発音スコア推移")
+    try:
+        from utils.database import get_student_practice_details
+        speaking_logs = get_student_practice_details(student_id, days=90, module_type='speaking')
+        if speaking_logs:
+            import pandas as pd
+            rows = []
+            for l in reversed(speaking_logs):  # 古い順に
+                details = l.get('activity_details') or {}
+                date = (l.get('practiced_at') or '')[:10]
+                if not date:
+                    continue
+                rows.append({
+                    '日付': date,
+                    '総合': l.get('score') or 0,
+                    '発音': details.get('pronunciation') or 0,
+                    '流暢さ': details.get('fluency') or 0,
+                })
+            if rows:
+                df = pd.DataFrame(rows)
+                # 同日複数回の場合は平均
+                df = df.groupby('日付').mean().round(1).reset_index()
+                st.line_chart(df.set_index('日付')[['総合', '発音', '流暢さ']])
+                # 最新スコアのサマリー
+                latest = df.iloc[-1]
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("最新 総合", f"{latest['総合']:.0f}点")
+                with col2:
+                    st.metric("最新 発音", f"{latest['発音']:.0f}点")
+                with col3:
+                    st.metric("最新 流暢さ", f"{latest['流暢さ']:.0f}点")
+            else:
+                st.info("スピーキングのスコアデータがまだありません")
+        else:
+            st.info("スピーキング練習の記録がまだありません")
+    except Exception as e:
+        st.warning(f"スピーキングデータの取得に失敗: {e}")
+
     st.markdown("---")
     st.markdown("#### 🏆 達成マイルストーン")
     try:
