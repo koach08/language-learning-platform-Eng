@@ -785,10 +785,11 @@ def show_student_ai_generator():
         # 練習モード選択
         practice_mode = st.radio(
             "練習方法",
-            ["script", "audio", "dictation"],
+            ["script", "audio", "quiz", "dictation"],
             format_func=lambda x: {
                 "script": "📜 スクリプトを確認",
                 "audio": "🔊 音声を聞く",
+                "quiz": "❓ 理解度クイズ",
                 "dictation": "✏️ ディクテーション"
             }[x],
             horizontal=True,
@@ -797,6 +798,61 @@ def show_student_ai_generator():
 
         if practice_mode == "script":
             st.markdown(data.get('script', ''))
+
+        elif practice_mode == "quiz":
+            questions = data.get('questions', [])
+            if not questions:
+                st.warning("クイズデータがありません。素材を再生成してください。")
+            else:
+                submitted_key = 's_ai_quiz_submitted'
+                answers_key = 's_ai_quiz_answers'
+                if answers_key not in st.session_state:
+                    st.session_state[answers_key] = {}
+
+                if not st.session_state.get(submitted_key):
+                    for i, q in enumerate(questions):
+                        st.markdown(f"**Q{i+1}. {q.get('question')}**")
+                        if q.get('question_ja'):
+                            st.caption(q.get('question_ja'))
+                        ans = st.radio("選択", q.get('options', []), key=f"s_ai_q_{i}", label_visibility="collapsed")
+                        st.session_state[answers_key][i] = ans
+                        st.markdown("---")
+
+                    if st.button("📤 回答を送信", type="primary", key="s_ai_quiz_submit"):
+                        st.session_state[submitted_key] = True
+                        # DB保存
+                        try:
+                            user = get_current_user()
+                            if user and user.get('role') != 'teacher':
+                                from utils.database import log_practice
+                                correct = sum(1 for i, q in enumerate(questions) if st.session_state[answers_key].get(i) == q.get('correct'))
+                                score = correct / max(len(questions), 1) * 100
+                                log_practice(
+                                    student_id=user['id'],
+                                    course_id=get_student_course_id(user),
+                                    module_type='listening',
+                                    activity_details={'type': 'ai_material_quiz', 'title': data.get('title', ''), 'score': score},
+                                    score=score,
+                                )
+                        except Exception as e:
+                            st.session_state['_listening_save_error'] = str(e)
+                        st.rerun()
+                    if st.session_state.get('_listening_save_error'):
+                        st.warning(f"⚠️ 学習記録の保存に失敗しました: {st.session_state.pop('_listening_save_error')}")
+                else:
+                    correct = sum(1 for i, q in enumerate(questions) if st.session_state[answers_key].get(i) == q.get('correct'))
+                    score = correct / max(len(questions), 1) * 100
+                    st.markdown(f"### 🎯 Score: {correct}/{len(questions)} ({score:.0f}%)")
+                    for i, q in enumerate(questions):
+                        if st.session_state[answers_key].get(i) == q.get('correct'):
+                            st.success(f"Q{i+1}. ✅ {q.get('question')}")
+                        else:
+                            st.error(f"Q{i+1}. ❌ 正解: {q.get('correct')}")
+                        st.markdown("---")
+                    if st.button("🔄 もう一度", key="s_ai_quiz_retry"):
+                        del st.session_state[submitted_key]
+                        st.session_state[answers_key] = {}
+                        st.rerun()
 
         elif practice_mode == "audio":
             # 音声リセットボタン（キャッシュが残っている場合に再生成できるように）
