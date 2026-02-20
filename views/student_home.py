@@ -391,23 +391,51 @@ def show_extracurricular_summary(user):
 def show_recommendations(enabled_modules):
     st.markdown("### 🎯 今日のおすすめ練習")
 
-    all_recommendations = [
-        {"module": "speaking", "task": "音読練習 10分", "icon": "🗣️", "reason": "発音スコア向上"},
-        {"module": "vocabulary", "task": "単語フラッシュカード", "icon": "📚", "reason": "語彙力強化"},
-        {"module": "listening", "task": "YouTube学習 15分", "icon": "🎧", "reason": "リスニング力向上"},
-        {"module": "writing", "task": "短文ライティング", "icon": "✍️", "reason": "表現力向上"},
-        {"module": "reading", "task": "記事読解", "icon": "📖", "reason": "読解スピード向上"},
-    ]
+    # モジュール情報（固定）
+    module_info = {
+        "speaking":   {"task": "音読練習 10分",       "icon": "🗣️"},
+        "vocabulary": {"task": "単語フラッシュカード", "icon": "📚"},
+        "listening":  {"task": "YouTube学習 15分",    "icon": "🎧"},
+        "writing":    {"task": "短文ライティング",     "icon": "✍️"},
+        "reading":    {"task": "記事読解",             "icon": "📖"},
+    }
 
-    recommendations = [r for r in all_recommendations if r['module'] in enabled_modules]
-    for rec in recommendations[:3]:
+    # practice_logsから直近7日の練習回数を取得
+    module_counts = {m: 0 for m in module_info}
+    try:
+        user = st.session_state.get('user')
+        if user:
+            from utils.database import get_supabase_client
+            from datetime import datetime, timedelta
+            supabase = get_supabase_client()
+            since = (datetime.utcnow() - timedelta(days=7)).isoformat()
+            result = supabase.table('practice_logs')                 .select('module_type')                 .eq('student_id', user['id'])                 .gte('practiced_at', since)                 .execute()
+            for row in (result.data or []):
+                mt = row.get('module_type', '')
+                # speaking_chat, speaking_pronunciationなどをspeakingにまとめる
+                category = mt.split('_')[0]
+                if category in module_counts:
+                    module_counts[category] += 1
+    except Exception:
+        pass
+
+    # 練習回数が少ない順にソートしてenable_modulesでフィルタ
+    sorted_modules = sorted(
+        [m for m in module_info if m in enabled_modules],
+        key=lambda m: module_counts.get(m, 0)
+    )
+
+    for module in sorted_modules[:3]:
+        info = module_info[module]
+        count = module_counts.get(module, 0)
+        reason = "今週まだ練習していません！" if count == 0 else f"今週{count}回練習済み — もう少し！"
         col1, col2 = st.columns([4, 1])
         with col1:
-            st.markdown(f"{rec['icon']} **{rec['task']}**")
-            st.caption(rec['reason'])
+            st.markdown(f"{info['icon']} **{info['task']}**")
+            st.caption(reason)
         with col2:
-            if st.button("開始", key=f"start_{rec['module']}"):
-                st.session_state['current_view'] = rec['module']
+            if st.button("開始", key=f"start_{module}"):
+                st.session_state['current_view'] = module
                 st.rerun()
 
 
