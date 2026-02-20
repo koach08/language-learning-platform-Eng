@@ -212,8 +212,9 @@ def show_class_progress():
 def show_student_view():
     """学生用"""
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "🃏 フラッシュカード",
+        "✏️ 能動的想起",
         "📝 単語テスト",
         "🤖 AI単語学習",
         "🔍 単語検索",
@@ -224,15 +225,18 @@ def show_student_view():
         show_flashcards()
     
     with tab2:
-        show_quiz()
+        show_active_recall()
     
     with tab3:
-        show_ai_word_learning()
+        show_quiz()
     
     with tab4:
-        show_word_search()
+        show_ai_word_learning()
     
     with tab5:
+        show_word_search()
+    
+    with tab6:
         show_progress()
 
 
@@ -597,6 +601,137 @@ def show_flashcards():
                 st.session_state.flashcard_index = 0
                 st.session_state.flashcard_flipped = False
                 st.rerun()
+
+
+def show_active_recall():
+    """能動的想起モード（タイプ入力で単語を答える）"""
+    st.markdown("### ✏️ 能動的想起 / Active Recall")
+    st.caption("日本語の意味を見て、英単語をタイプ入力で答えましょう")
+
+    word_lists = load_materials('vocabulary')
+    if not word_lists:
+        st.info("単語リストがありません")
+        return
+
+    list_options = {key: f"{data.get('name', data.get('title', key))} ({data.get('level', '')})" for key, data in word_lists.items()}
+    selected_list = st.selectbox(
+        "単語リストを選択",
+        options=list(list_options.keys()),
+        format_func=lambda x: list_options[x],
+        key="ar_list"
+    )
+
+    if not selected_list:
+        return
+
+    word_list = word_lists[selected_list]
+    words = word_list.get('words', [])
+    if not words:
+        st.info("単語がありません")
+        return
+
+    # セッション初期化
+    ar_list_key = 'ar_list_id'
+    if st.session_state.get(ar_list_key) != selected_list:
+        st.session_state[ar_list_key] = selected_list
+        st.session_state['ar_index'] = 0
+        st.session_state['ar_results'] = []
+        st.session_state['ar_answered'] = False
+        st.session_state['ar_correct'] = None
+
+    idx = st.session_state.get('ar_index', 0)
+
+    # 全問完了
+    if idx >= len(words):
+        results = st.session_state.get('ar_results', [])
+        correct_count = sum(1 for r in results if r['correct'])
+        score = correct_count / max(len(results), 1) * 100
+        st.markdown(f"### 🎯 結果: {correct_count}/{len(results)} ({score:.0f}%)")
+        for r in results:
+            if r['correct']:
+                st.success(f"✅ {r['meaning']} → **{r['word']}**")
+            else:
+                st.error(f"❌ {r['meaning']} → 正解: **{r['word']}** / あなたの回答: {r['user_answer']}")
+
+        # DB保存
+        try:
+            user = st.session_state.get('user')
+            if user and user.get('role') != 'teacher':
+                from utils.database import log_practice
+                from utils.analytics import invalidate_analytics_cache
+                log_practice(
+                    student_id=user['id'],
+                    module_type='vocabulary_flashcard',
+                    score=score,
+                    activity_details={'type': 'active_recall', 'list': selected_list, 'correct': correct_count, 'total': len(results)}
+                )
+                invalidate_analytics_cache()
+        except Exception as e:
+            st.warning(f"⚠️ 記録の保存に失敗しました: {e}")
+
+        if st.button("🔄 もう一度", type="primary", key="ar_retry"):
+            st.session_state['ar_index'] = 0
+            st.session_state['ar_results'] = []
+            st.session_state['ar_answered'] = False
+            st.session_state['ar_correct'] = None
+            st.rerun()
+        return
+
+    current_word = words[idx]
+    st.progress((idx + 1) / len(words))
+    st.caption(f"問題 {idx + 1} / {len(words)}")
+    st.markdown("---")
+
+    # 問題表示（日本語の意味）
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 40px; border-radius: 20px; text-align: center; color: white; min-height: 160px;">
+        <p style="margin: 0; opacity: 0.8; font-size: 1em;">{current_word.get('pos', '')}</p>
+        <h2 style="margin: 10px 0;">{current_word['meaning']}</h2>
+        <p style="margin-top: 10px; opacity: 0.7; font-size: 0.9em; font-style: italic;">{current_word.get('example', '')}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    answered = st.session_state.get('ar_answered', False)
+
+    if not answered:
+        user_input = st.text_input(
+            "英単語を入力してください",
+            key=f"ar_input_{idx}",
+            placeholder="Type the English word..."
+        )
+        if st.button("✅ 確認", type="primary", key=f"ar_check_{idx}"):
+            if not user_input.strip():
+                st.warning("単語を入力してください")
+            else:
+                correct_word = current_word['word'].lower().strip()
+                user_word = user_input.lower().strip()
+                is_correct = correct_word == user_word
+                st.session_state['ar_answered'] = True
+                st.session_state['ar_correct'] = is_correct
+                st.session_state['ar_results'].append({
+                    'word': current_word['word'],
+                    'meaning': current_word['meaning'],
+                    'user_answer': user_input,
+                    'correct': is_correct
+                })
+                st.rerun()
+    else:
+        is_correct = st.session_state.get('ar_correct', False)
+        if is_correct:
+            st.success(f"✅ 正解！ **{current_word['word']}**")
+        else:
+            last = st.session_state['ar_results'][-1]
+            st.error(f"❌ 不正解。正解: **{current_word['word']}** / あなたの回答: {last['user_answer']}")
+        st.markdown(f"*例文:* {current_word.get('example', '')}")
+
+        if st.button("▶️ 次の単語", type="primary", key=f"ar_next_{idx}"):
+            st.session_state['ar_index'] = idx + 1
+            st.session_state['ar_answered'] = False
+            st.session_state['ar_correct'] = None
+            st.rerun()
 
 
 def show_quiz():
