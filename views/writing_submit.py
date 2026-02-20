@@ -431,6 +431,20 @@ def show_assignment_submission():
                         )
                         if not is_demo:
                             st.success("✅ 提出が記録されました / Submission saved")
+                        # practice_logsに記録（ダッシュボード集計用）
+                        log_practice(
+                            student_id=user['id'],
+                            module_type='writing',
+                            course_id=course_id,
+                            score=result.get('scores', {}).get('overall'),
+                            duration_seconds=len(text.split()) * 3,  # 語数×3秒で概算
+                            activity_details={
+                                'activity': 'writing_assignment',
+                                'task_type': selected['type'],
+                                'word_count': len(text.split()),
+                                'is_practice': is_demo,
+                            }
+                        )
                     except Exception as e:
                         st.caption(f"⚠️ DB保存エラー: {e}")
                 else:
@@ -558,6 +572,19 @@ def show_practice_mode():
                             cefr_level=result.get('cefr_level', ''),
                             is_practice=True,
                             course_id=st.session_state.get('current_course', {}).get('id'),
+                        )
+                        # practice_logsに記録（ダッシュボード集計用）
+                        log_practice(
+                            student_id=user['id'],
+                            module_type='writing_practice',
+                            course_id=st.session_state.get('current_course', {}).get('id'),
+                            score=result.get('scores', {}).get('overall'),
+                            duration_seconds=len(text.split()) * 3,
+                            activity_details={
+                                'activity': 'writing_practice',
+                                'task_type': practice_type.split("/")[0].strip(),
+                                'word_count': len(text.split()),
+                            }
                         )
                     except Exception as e:
                         st.caption(f"⚠️ DB保存エラー: {e}")

@@ -685,6 +685,21 @@ def show_quiz():
                         total=st.session_state.quiz_total,
                         course_id=st.session_state.get('current_course', {}).get('id'),
                     )
+                    # practice_logsに記録（ダッシュボード集計用）
+                    log_practice(
+                        student_id=user['id'],
+                        module_type='vocabulary_quiz',
+                        course_id=st.session_state.get('current_course', {}).get('id'),
+                        score=round(pct, 1),
+                        duration_seconds=st.session_state.quiz_total * 20,  # 1問20秒で概算
+                        activity_details={
+                            'activity': 'vocabulary_quiz',
+                            'list_name': word_list.get('name', selected_list),
+                            'quiz_type': st.session_state.quiz_type,
+                            'correct': st.session_state.quiz_score,
+                            'total': st.session_state.quiz_total,
+                        }
+                    )
                     st.session_state.quiz_saved = True
                 except Exception:
                     pass
