@@ -941,16 +941,18 @@ def save_writing_submission(student_id: str, assignment_id: str = None,
         'student_id': student_id,
         'content_type': 'writing',
         'student_text': text,
-        'score': scores.get('overall', 0) if scores else 0,
-        'scores_detail': scores or {},
+        'total_score': scores.get('overall', 0) if scores else 0,
+        'scores': scores or {},
         'feedback': feedback,
-        'details': {
+        'feedback_detailed': {
             'task_type': task_type,
             'word_count': word_count,
             'cefr_level': cefr_level,
             'is_practice': is_practice,
             **kwargs
         },
+        'cefr_level': cefr_level,
+        'is_practice': is_practice,
     }
     if assignment_id:
         data['assignment_id'] = assignment_id
@@ -971,12 +973,13 @@ def save_translation_check(student_id: str, japanese_text: str,
         'student_id': student_id,
         'content_type': 'translation',
         'student_text': english_text,
-        'score': scores.get('overall', 0) if scores else 0,
-        'scores_detail': scores or {},
+        'total_score': scores.get('overall', 0) if scores else 0,
+        'scores': scores or {},
         'feedback': feedback,
-        'details': {
+        'feedback_detailed': {
             'japanese_text': japanese_text,
         },
+        'is_practice': True,
     }
     if course_id:
         data['course_id'] = course_id
