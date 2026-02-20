@@ -325,8 +325,8 @@ def show_youtube_learning_student():
                                     activity_details={'type': 'youtube_dictation', 'url': url, 'score': score},
                                     score=score
                                 )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            st.warning(f"⚠️ 学習記録の保存に失敗しました: {e}")
         else:
             st.warning("有効なYouTube URLを入力してください")
 
@@ -485,8 +485,11 @@ def show_youtube_quiz(exercises):
                         score=score,
                     )
             except Exception as e:
-                st.error(f"Listening保存エラー: {e}")
+                st.session_state['_listening_save_error'] = str(e)
             st.rerun()
+        # rerun後もエラーを表示
+        if st.session_state.get('_listening_save_error'):
+            st.warning(f"⚠️ 学習記録の保存に失敗しました: {st.session_state.pop('_listening_save_error')}")
     else:
         correct = sum(1 for i, q in enumerate(questions) if st.session_state.yt_answers.get(i) == q.get('correct'))
         for i, q in enumerate(questions):
@@ -544,8 +547,8 @@ def show_youtube_dictation(exercises):
                         activity_details={'type': 'dictation', 'accuracy': accuracy},
                         score=accuracy,
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                st.warning(f"⚠️ 学習記録の保存に失敗しました: {e}")
 
 
 def show_listening_practice():
@@ -619,8 +622,8 @@ def show_listening_practice():
                             activity_details={'type': 'material_practice', 'title': material.get('title', '')},
                         )
                         st.session_state[log_key] = True
-                except Exception:
-                    pass
+                except Exception as e:
+                    st.warning(f"⚠️ 学習記録の保存に失敗しました: {e}")
 
 
 def show_material_quiz(material, material_key):
@@ -676,8 +679,11 @@ def show_material_quiz(material, material_key):
                             score=score,
                         )
                 except Exception as e:
-                    st.error(f"保存エラー: {e}")
+                    st.session_state['_listening_save_error'] = str(e)
                 st.rerun()
+            # rerun後もエラーを表示
+            if st.session_state.get('_listening_save_error'):
+                st.warning(f"⚠️ 学習記録の保存に失敗しました: {st.session_state.pop('_listening_save_error')}")
         else:
             correct = sum(1 for i, q in enumerate(questions) if st.session_state[answers_key].get(i) == q.get('correct'))
             score = correct / max(len(questions), 1) * 100
