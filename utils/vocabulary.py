@@ -288,3 +288,73 @@ Generate exercises in JSON format:
         
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def grade_student_sentence(word: str, sentence: str, context: dict = None) -> dict:
+    """
+    学生が作成した英文をgpt-4o-miniで採点する
+
+    Args:
+        word: 対象の英単語
+        sentence: 学生の作文
+        context: 追加情報（meaning, example など）
+
+    Returns:
+        {
+            "success": bool,
+            "score": int (0-100),
+            "grade": str ("Excellent" / "Good" / "Needs Work"),
+            "feedback_en": str,
+            "feedback_ja": str,
+            "suggestion": str  # 改善提案1文
+        }
+    """
+    client = get_openai_client()
+
+    meaning = context.get("meaning", "") if context else ""
+    example = context.get("example", "") if context else ""
+
+    context_info = ""
+    if meaning:
+        context_info += f"\n- Word meaning: {meaning}"
+    if example:
+        context_info += f"\n- Example sentence: {example}"
+
+    prompt = f"""Evaluate this English sentence written by a Japanese university student.
+
+Target word: "{word}"{context_info}
+
+Student's sentence: "{sentence}"
+
+Evaluate on these criteria:
+1. Grammar accuracy
+2. Collocation (natural word combinations)
+3. Pragmatic appropriateness (natural usage in context)
+4. Correct use of the target word "{word}"
+
+Respond in JSON:
+{{
+    "score": <integer 0-100>,
+    "grade": "<Excellent | Good | Needs Work>",
+    "feedback_en": "<2-3 sentence feedback in English, specific and constructive>",
+    "feedback_ja": "<2-3文の日本語フィードバック、具体的かつ建設的に>",
+    "suggestion": "<One improved version or specific suggestion sentence in English>"
+}}
+
+Be encouraging but honest. Focus on helping them improve."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful English writing coach for Japanese university students. Respond in valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        result = json.loads(response.choices[0].message.content)
+        result["success"] = True
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}

@@ -4,7 +4,8 @@ from utils.vocabulary import (
     get_word_details, 
     generate_quiz_question,
     generate_word_list_from_prompt,
-    generate_exercises_for_word
+    generate_exercises_for_word,
+    grade_student_sentence,          # ← 追加
 )
 from utils.materials_loader import load_materials
 from utils.database import (
@@ -365,18 +366,57 @@ def show_word_exercises(data):
                     st.info(f"💡 {ex.get('explanation', '')}")
             
             elif ex_type == 'sentence_creation':
-                # 作文
+                # ===== 作文 + AI採点 =====
                 st.markdown(f"**{ex.get('instruction', '')}**")
                 
                 user_sentence = st.text_area("Your sentence:", key=f"sentence_{i}", height=80)
                 
-                st.markdown("**Sample answer / 例文:**")
-                st.markdown(f"> {ex.get('sample_answer', '')}")
+                # AI採点ボタン（文字入力後のみ表示）
+                grade_key = f"grade_result_{i}"
+                if user_sentence.strip():
+                    if st.button("🤖 採点する / Grade my sentence", key=f"grade_btn_{i}", type="primary"):
+                        with st.spinner("採点中... / Grading..."):
+                            context = {
+                                "meaning": data.get("meaning", ""),
+                                "example": ex.get("sample_answer", "")
+                            }
+                            result = grade_student_sentence(data.get("word", ""), user_sentence, context)
+                            st.session_state[grade_key] = result
                 
-                if ex.get('key_points'):
-                    st.markdown("**Key points / ポイント:**")
-                    for point in ex.get('key_points', []):
-                        st.markdown(f"- {point}")
+                # 採点結果表示
+                if grade_key in st.session_state:
+                    result = st.session_state[grade_key]
+                    if result.get("success"):
+                        score = result.get("score", 0)
+                        
+                        # スコア表示
+                        col_s1, col_s2 = st.columns([1, 3])
+                        with col_s1:
+                            if score >= 80:
+                                st.metric("Score", f"{score}/100", delta="Excellent! 🌟")
+                            elif score >= 60:
+                                st.metric("Score", f"{score}/100", delta="Good 👍")
+                            else:
+                                st.metric("Score", f"{score}/100", delta="Keep trying 💪")
+                        with col_s2:
+                            st.progress(score / 100)
+                        
+                        # フィードバック
+                        with st.container(border=True):
+                            st.markdown(f"**📝 Feedback (EN):** {result.get('feedback_en', '')}")
+                            st.markdown(f"**📝 フィードバック (JA):** {result.get('feedback_ja', '')}")
+                            if result.get("suggestion"):
+                                st.info(f"💡 **改善提案 / Suggestion:** {result.get('suggestion')}")
+                    else:
+                        st.error(f"採点エラー: {result.get('error', 'Unknown error')}")
+                
+                # サンプル・ポイントは折りたたみ表示（答えを見るのは後から）
+                with st.expander("📖 Sample answer & Key points"):
+                    st.markdown(f"> {ex.get('sample_answer', '')}")
+                    if ex.get('key_points'):
+                        st.markdown("**Key points / ポイント:**")
+                        for point in ex.get('key_points', []):
+                            st.markdown(f"- {point}")
 
 
 def show_generated_list_for_student(result):
@@ -465,7 +505,7 @@ def get_exercise_type_name(ex_type):
         "fill_blank": "穴埋め / Fill in the blank",
         "collocation": "コロケーション / Collocation",
         "synonym": "類義語 / Synonym",
-        "sentence_creation": "作文 / Create a sentence"
+        "sentence_creation": "作文 + AI採点 / Create a sentence"
     }
     return names.get(ex_type, ex_type)
 
