@@ -231,6 +231,23 @@ def get_student_enrollments(student_id: str) -> List[Dict]:
     return result.data
 
 
+def get_primary_course_id(student_id: str) -> str | None:
+    """学生のメインcourse_idをenrollmentsから直接取得（joinなし・安定版）"""
+    try:
+        supabase = get_supabase_client()
+        result = supabase.table('enrollments')\
+            .select('course_id')\
+            .eq('student_id', student_id)\
+            .order('enrolled_at')\
+            .limit(1)\
+            .execute()
+        if result.data:
+            return result.data[0].get('course_id')
+    except Exception:
+        pass
+    return None
+
+
 def get_all_students() -> List[Dict]:
     """全学生一覧を取得（教員用）"""
     supabase = get_supabase_client()

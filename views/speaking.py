@@ -23,35 +23,37 @@ from utils.database import (
 )
 
 
-def _resolve_course_id() -> str:
-    """course_idを複数ソースから解決（writing_submit.pyと同じパターン）"""
-    # 1. student_homeからの遷移時
+def _resolve_course_id() -> str | None:
+    """course_idを複数ソースから解決（安定版）"""
+    # 1. student_homeからの遷移時（最優先）
     cid = st.session_state.get('submit_course_id')
     if cid:
         return cid
+
     # 2. current_course（従来パターン）
     current_course = st.session_state.get('current_course')
-    if current_course and isinstance(current_course, dict):
-        cid = current_course.get('id')
+    if isinstance(current_course, dict):
+        cid = current_course.get('id') or current_course.get('course_id')
         if cid:
             return cid
-    # 3. DBからenrollments
+
+    # 3. session_stateキャッシュ（一度取得済みなら再利用）
+    cid = st.session_state.get('_resolved_course_id')
+    if cid:
+        return cid
+
+    # 4. DBのenrollmentsから直接course_idを取得（最も確実）
     try:
-        from utils.database import get_student_enrollments
+        from utils.database import get_primary_course_id
         user = get_current_user()
-        enrollments = get_student_enrollments(user['id'])
-        if enrollments:
-            course = enrollments[0].get('courses')
-            if course:
-                return course.get('id')
+        if user:
+            cid = get_primary_course_id(user['id'])
+            if cid:
+                st.session_state['_resolved_course_id'] = cid
+                return cid
     except Exception:
         pass
-    # 4. user.class_key
-    try:
-        user = get_current_user()
-        return user.get('class_key')
-    except Exception:
-        pass
+
     return None
 
 # プリセット教材
@@ -1263,10 +1265,7 @@ def show_speech_practice(user):
                 # DB記録
                 try:
                     from utils.database import log_practice
-                    course_id = None
-                    registered = st.session_state.get('student_registered_classes', [])
-                    if registered:
-                        course_id = registered[0].get('class_key')
+                    course_id = _resolve_course_id()
                     
                     log_practice(
                         student_id=user['id'],
