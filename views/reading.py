@@ -2,10 +2,12 @@ import streamlit as st
 from utils.auth import get_current_user, require_auth
 from utils.reading import (
     generate_comprehension_questions,
+    generate_exam_questions,
     generate_summary_and_vocabulary,
     generate_article_from_prompt,
     calculate_wpm,
-    get_wpm_feedback
+    get_wpm_feedback,
+    EXAM_CONFIGS,
 )
 from utils.materials_loader import load_materials
 import time
@@ -330,17 +332,39 @@ def show_reading_practice():
             col1, col2, col3 = st.columns(3)
             
             with col1:
+                # クイズモード選択
+                quiz_mode_choice = st.selectbox(
+                    "📝 クイズモード",
+                    ["通常 (True/False + 4択)", "TOEFL iBT対策", "TOEIC対策", "英検対策"],
+                    key="quiz_mode_select"
+                )
                 if st.button("📝 理解度クイズ / Comprehension Quiz", type="primary"):
-                    with st.spinner("問題を生成中..."):
-                        questions = generate_comprehension_questions(
-                            article['text'],
-                            article['title'],
-                            level=article['level']
-                        )
+                    with st.spinner("問題を生成中... (初回は少し時間がかかります)"):
+                        if quiz_mode_choice == "通常 (True/False + 4択)":
+                            questions = generate_comprehension_questions(
+                                article['text'],
+                                article['title'],
+                                level=article['level']
+                            )
+                        else:
+                            exam_map = {
+                                "TOEFL iBT対策": "TOEFL",
+                                "TOEIC対策": "TOEIC",
+                                "英検対策": "EIKEN",
+                            }
+                            questions = generate_exam_questions(
+                                article['text'],
+                                article['title'],
+                                exam_type=exam_map[quiz_mode_choice],
+                                level=article['level']
+                            )
                     if questions.get("success"):
                         st.session_state.reading_questions = questions
                         st.session_state.quiz_mode = True
+                        st.session_state.quiz_exam_type = quiz_mode_choice
                         st.rerun()
+                    else:
+                        st.error(f"問題生成に失敗しました: {questions.get('error', '')}")
             
             with col2:
                 if st.button("📋 要約・語彙 / Summary & Vocab"):
@@ -374,66 +398,123 @@ def show_reading_practice():
 
 
 def show_comprehension_quiz(data):
-    """理解度クイズ"""
-    
+    """理解度クイズ（True/False + 4択ハイブリッド対応・検定モード対応）"""
+
     st.markdown("---")
-    st.markdown("### 📝 理解度クイズ / Comprehension Quiz")
-    
+
+    # 検定モードラベル表示
+    exam_type = st.session_state.get('quiz_exam_type', '通常 (True/False + 4択)')
+    if exam_type != '通常 (True/False + 4択)':
+        st.markdown(f"### 📝 {exam_type} 対策クイズ")
+        exam_map = {"TOEFL iBT対策": "TOEFL", "TOEIC対策": "TOEIC", "英検対策": "EIKEN"}
+        config_key = exam_map.get(exam_type, "TOEFL")
+        from utils.reading import EXAM_CONFIGS
+        cfg = EXAM_CONFIGS.get(config_key, {})
+        st.caption(cfg.get("description", ""))
+    else:
+        st.markdown("### 📝 理解度クイズ / Comprehension Quiz")
+
     questions = data.get('questions', [])
-    
+    if not questions:
+        st.warning("問題を読み込めませんでした")
+        return
+
+    # 問題タイプのバッジ
+    TYPE_LABELS = {
+        "true_false": "T/F",
+        "detail": "Detail",
+        "inference": "🔍 Inference",
+        "main_idea": "Main Idea",
+        "rhetorical_purpose": "Rhetorical",
+        "vocabulary_in_context": "Vocabulary",
+        "not_mentioned": "NOT",
+    }
+
     if 'quiz_answers' not in st.session_state:
         st.session_state.quiz_answers = {}
     if 'quiz_submitted' not in st.session_state:
         st.session_state.quiz_submitted = False
-    
+
     if not st.session_state.quiz_submitted:
         for i, q in enumerate(questions):
-            st.markdown(f"**Q{i+1}. {q.get('question', '')}**")
-            st.caption(q.get('question_ja', ''))
-            
-            answer = st.radio(
-                f"選択 / Choose",
-                q.get('options', []),
-                key=f"reading_q_{i}",
-                label_visibility="collapsed"
-            )
+            q_type = q.get('type', 'detail')
+            badge = TYPE_LABELS.get(q_type, q_type)
+            st.markdown(f"**Q{i+1}.** `{badge}` &nbsp; {q.get('question', '')}")
+            if q.get('question_ja'):
+                st.caption(q['question_ja'])
+
+            if q_type == 'true_false':
+                # True/False は2択ラジオ
+                answer = st.radio(
+                    "選択",
+                    ["True", "False"],
+                    key=f"reading_q_{i}",
+                    horizontal=True,
+                    label_visibility="collapsed"
+                )
+            else:
+                # 4択
+                answer = st.radio(
+                    "選択 / Choose",
+                    q.get('options', []),
+                    key=f"reading_q_{i}",
+                    label_visibility="collapsed"
+                )
             st.session_state.quiz_answers[i] = answer
             st.markdown("---")
-        
+
         if st.button("📤 回答を送信 / Submit Answers", type="primary"):
             st.session_state.quiz_submitted = True
             st.rerun()
-    
+
     else:
         # 結果表示
         correct_count = 0
         for i, q in enumerate(questions):
             user_answer = st.session_state.quiz_answers.get(i)
-            is_correct = user_answer == q.get('correct')
+            is_correct = (str(user_answer).strip() == str(q.get('correct', '')).strip())
             if is_correct:
                 correct_count += 1
-            
+
+            q_type = q.get('type', 'detail')
+            badge = TYPE_LABELS.get(q_type, q_type)
+
             if is_correct:
-                st.success(f"**Q{i+1}. ✅ Correct!**")
+                st.success(f"**Q{i+1}.** `{badge}` ✅ Correct!")
             else:
-                st.error(f"**Q{i+1}. ❌ Incorrect**")
-            
-            st.markdown(f"Your answer: {user_answer}")
-            st.markdown(f"Correct answer: {q.get('correct')}")
-            st.info(f"💡 {q.get('explanation', '')}")
-            if q.get('text_evidence'):
-                st.caption(f"📄 本文の根拠 / Text evidence: 『{q.get('text_evidence')}』")
+                st.error(f"**Q{i+1}.** `{badge}` ❌ Incorrect")
+
+            st.markdown(f"- Your answer: **{user_answer}**")
+            if not is_correct:
+                st.markdown(f"- Correct answer: **{q.get('correct')}**")
+
+            # 解説
+            with st.expander("💡 解説を見る / See explanation"):
+                st.markdown(q.get('explanation', ''))
+                # text_evidenceをハイライト表示
+                if q.get('text_evidence'):
+                    st.markdown("---")
+                    st.markdown("📄 **本文の根拠 / Text evidence:**")
+                    st.info(f"「{q['text_evidence']}」")
+
             st.markdown("---")
-        
+
         # スコア
-        score_pct = (correct_count / len(questions)) * 100
-        st.markdown(f"### 🎯 Score: {correct_count}/{len(questions)} ({score_pct:.0f}%)")
-        
-        # DB保存（1回だけ実行）
+        total = len(questions)
+        score_pct = (correct_count / total * 100) if total > 0 else 0
+
+        if score_pct >= 80:
+            st.success(f"### 🎯 Score: {correct_count}/{total} ({score_pct:.0f}%) — 素晴らしい！")
+        elif score_pct >= 60:
+            st.warning(f"### 🎯 Score: {correct_count}/{total} ({score_pct:.0f}%) — もう少し！")
+        else:
+            st.error(f"### 🎯 Score: {correct_count}/{total} ({score_pct:.0f}%) — 記事をもう一度読んでみよう")
+
+        # DB保存（1回だけ）
         if not st.session_state.get('quiz_saved'):
             _save_reading_quiz_to_db(questions, score_pct)
             st.session_state.quiz_saved = True
-        
+
         if st.button("🔄 もう一度 / Try Again"):
             st.session_state.quiz_submitted = False
             st.session_state.quiz_answers = {}

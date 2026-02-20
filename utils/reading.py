@@ -8,7 +8,7 @@ def get_openai_client():
     return OpenAI(api_key=st.secrets["openai"]["api_key"])
 
 
-# デモ用記事
+# デモ用記事（既存のまま保持）
 DEMO_ARTICLES = {
     "climate": {
         "title": "Climate Change and Global Action",
@@ -34,73 +34,232 @@ DEMO_ARTICLES = {
 }
 
 
-def generate_comprehension_questions(text, title, num_questions=5, level="B1"):
-    """読解問題を生成（genuine reading comprehension重視版）"""
-    client = get_openai_client()
+# ============================================================
+# 問題タイプ分布（レベル別）
+# ============================================================
 
-    prompt = f"""You are an expert EFL test designer. Your goal is to create questions that CANNOT be answered without carefully reading the article.
+def _get_question_distribution(level: str, num_questions: int) -> dict:
+    """レベルと問題数に応じたTrue/False・4択の分布を返す"""
+    if level in ("A1", "A2", "B1"):
+        # 基礎レベル: True/False多め・inference少なめ
+        tf_count = max(2, num_questions // 2)
+        mc_detail = max(1, (num_questions - tf_count) - 1)
+        mc_inference = num_questions - tf_count - mc_detail
+        mc_main_idea = 0
+    else:
+        # 上級レベル(B2,C1): 4択多め・TOEFL型inference含む
+        tf_count = max(2, num_questions // 3)
+        mc_inference = 2
+        mc_main_idea = 1
+        mc_detail = num_questions - tf_count - mc_inference - mc_main_idea
+        mc_detail = max(1, mc_detail)
+
+    return {
+        "true_false": tf_count,
+        "mc_detail": mc_detail,
+        "mc_inference": mc_inference,
+        "mc_main_idea": mc_main_idea,
+    }
+
+
+# ============================================================
+# メイン問題生成（ハイブリッド: True/False + 4択）
+# ============================================================
+
+def generate_comprehension_questions(text, title, num_questions=5, level="B1"):
+    """読解問題を生成（ハイブリッド版: True/False + 4択 + TOEFL型inference）
+    
+    モデル:
+    - True/False・detail 4択: gpt-4o-mini（コスト抑制）
+    - inference・main_idea 4択: gpt-4o（品質重視）
+    """
+    dist = _get_question_distribution(level, num_questions)
+    tf_count = dist["true_false"]
+    mc_detail = dist["mc_detail"]
+    mc_inference = dist["mc_inference"]
+    mc_main_idea = dist["mc_main_idea"]
+
+    all_questions = []
+
+    # --- True/False問題（gpt-4o-mini）---
+    if tf_count > 0:
+        tf_result = _generate_true_false(text, title, tf_count, level)
+        if tf_result.get("success"):
+            all_questions.extend(tf_result.get("questions", []))
+
+    # --- detail 4択（gpt-4o-mini）---
+    if mc_detail > 0:
+        detail_result = _generate_mc_detail(text, title, mc_detail, level)
+        if detail_result.get("success"):
+            all_questions.extend(detail_result.get("questions", []))
+
+    # --- inference + main_idea 4択（gpt-4o）---
+    mc_high = mc_inference + mc_main_idea
+    if mc_high > 0:
+        high_result = _generate_mc_high_order(text, title, mc_inference, mc_main_idea, level)
+        if high_result.get("success"):
+            all_questions.extend(high_result.get("questions", []))
+
+    if not all_questions:
+        return {"success": False, "error": "問題の生成に失敗しました"}
+
+    return {"success": True, "questions": all_questions}
+
+
+def _generate_true_false(text, title, count, level):
+    """True/False問題をgpt-4o-miniで生成"""
+    client = get_openai_client()
+    prompt = f"""You are an EFL reading test designer. Create {count} True/False questions for this article.
 
 Article Title: {title}
-Article Text:
+Level: {level}
+Article:
 {text}
 
-==============================
-CRITICAL RULES — no exceptions:
+RULES:
+1. Each statement must be verifiable ONLY by reading the article — not from general knowledge.
+2. Use paraphrase and synonyms — do NOT copy sentences directly from the article.
+3. False statements must contain ONE specific factual error (wrong number, reversed cause/effect, wrong subject).
+4. Distribute True and False answers roughly equally.
+5. Every question must include the exact quote from the article that proves the answer (text_evidence).
 
-1. ANTI-PATTERN RULE (most important)
-   Every question MUST pass this test:
-   → Can a student who has NOT read the article answer this from general knowledge? 
-   → If YES, reject the question and create a new one.
-   → If NO, the question is valid.
-
-2. ANTI-ELIMINATION RULE
-   Wrong options must NOT be eliminatable by:
-   - Being obviously absurd or unrelated to the topic
-   - Being grammatically inconsistent
-   - Being logically impossible without reading
-   All 4 options must sound plausible to someone who has only skimmed the article.
-
-3. NO KEYWORD MATCHING
-   Correct answers must PARAPHRASE the article text using synonyms and different sentence structures.
-   Wrong options may use words FROM the article but in incorrect combinations to trap skimmers.
-
-4. SPECIFIC DETAILS ONLY
-   Focus on specific numbers, names, comparisons, causes, effects, or sequences mentioned in THIS article.
-   Avoid questions about general themes that could apply to any article on this topic.
-
-==============================
-QUESTION TYPE DISTRIBUTION:
-- 1 question → main_idea: The specific argument/purpose of THIS article (not the general topic)
-- 2 questions → detail: Specific facts, numbers, or sequences from the text — answer paraphrased
-- 1 question → inference: A conclusion that follows ONLY from this article's specific content
-- 1 question → vocabulary_in_context: A word whose meaning in this context differs from its common meaning
-
-==============================
-SELF-CHECK before outputting:
-For each question ask yourself:
-"Could a well-educated person answer this without reading the article?"
-If the answer is "possibly yes" — rewrite the question to focus on more specific details.
-
-Generate {num_questions} questions in this JSON format:
+Output JSON:
 {{
-    "questions": [
-        {{
-            "question": "<Question in English — specific and detail-focused>",
-            "question_ja": "<日本語訳>",
-            "type": "<main_idea|detail|inference|vocabulary_in_context>",
-            "options": ["<A>", "<B>", "<C>", "<D>"],
-            "correct": "<Exact text of correct option>",
-            "explanation": "<EN: Why correct + why each wrong option is wrong. JA: 正解の理由と各選択肢が不正解な理由>",
-            "text_evidence": "<Exact short quote from the article that supports the answer>"
-        }}
-    ]
+  "questions": [
+    {{
+      "type": "true_false",
+      "question": "<Statement in English>",
+      "question_ja": "<日本語訳>",
+      "correct": "True" or "False",
+      "explanation": "<Why True or False — EN and JA>",
+      "text_evidence": "<Exact short quote from the article>"
+    }}
+  ]
 }}"""
 
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are an expert EFL reading test designer specializing in questions that require genuine reading comprehension. Respond in valid JSON only."},
+                {"role": "system", "content": "You are an expert EFL test designer. Respond in valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        result = json.loads(response.choices[0].message.content)
+        result["success"] = True
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _generate_mc_detail(text, title, count, level):
+    """detail系4択問題をgpt-4o-miniで生成"""
+    client = get_openai_client()
+    prompt = f"""You are an EFL reading test designer. Create {count} multiple-choice detail questions.
+
+Article Title: {title}
+Level: {level}
+Article:
+{text}
+
+RULES:
+1. Focus on specific facts, numbers, sequences, or comparisons IN THIS article.
+2. Correct answer must PARAPHRASE the article — not copy it verbatim.
+3. Wrong options: use words from the article but in incorrect combinations.
+4. Cannot be answered from general knowledge alone.
+
+Output JSON:
+{{
+  "questions": [
+    {{
+      "type": "detail",
+      "question": "<Question in English>",
+      "question_ja": "<日本語訳>",
+      "options": ["<A>", "<B>", "<C>", "<D>"],
+      "correct": "<Exact text of correct option>",
+      "explanation": "<Why correct + why others wrong — EN and JA>",
+      "text_evidence": "<Exact short quote from the article>"
+    }}
+  ]
+}}"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are an expert EFL test designer. Respond in valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        result = json.loads(response.choices[0].message.content)
+        result["success"] = True
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _generate_mc_high_order(text, title, inference_count, main_idea_count, level):
+    """inference・main_idea 4択をgpt-4oで生成（TOEFL型）"""
+    client = get_openai_client()
+
+    inference_instruction = ""
+    if inference_count > 0:
+        inference_instruction = f"""
+INFERENCE QUESTIONS ({inference_count} questions) — TOEFL iBT style:
+- Ask what can be INFERRED or IMPLIED — NOT directly stated.
+- Examples of good inference questions:
+  * "What does the author imply about X?"
+  * "Which statement would the author most likely agree with?"
+  * "What can be inferred about X from the passage?"
+  * "The passage suggests that the author's attitude toward X is..."
+- Wrong options: one too strong/extreme, one contradicts the passage, one is unrelated.
+- The correct answer must follow LOGICALLY from the passage's specific content — not from general knowledge.
+"""
+
+    main_idea_instruction = ""
+    if main_idea_count > 0:
+        main_idea_instruction = f"""
+MAIN IDEA QUESTIONS ({main_idea_count} questions) — TOEFL iBT style:
+- Ask about the PRIMARY purpose or central argument of THIS specific article.
+- Wrong options: too narrow (one detail), too broad (general topic), opposite of the article's stance.
+"""
+
+    prompt = f"""You are an expert TOEFL iBT reading test designer. Create high-order thinking questions.
+
+Article Title: {title}
+Level: {level}
+Article:
+{text}
+
+{inference_instruction}
+{main_idea_instruction}
+
+CRITICAL: Every question must require careful reading of THIS article. General knowledge must not be sufficient.
+
+Output JSON:
+{{
+  "questions": [
+    {{
+      "type": "inference" or "main_idea",
+      "question": "<Question in English>",
+      "question_ja": "<日本語訳>",
+      "options": ["<A>", "<B>", "<C>", "<D>"],
+      "correct": "<Exact text of correct option>",
+      "explanation": "<Detailed explanation: why correct, why each wrong option fails — EN and JA>",
+      "text_evidence": "<Passage clue(s) that support the inference>"
+    }}
+  ]
+}}"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are an expert TOEFL iBT reading test designer. Respond in valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.4,
@@ -113,8 +272,136 @@ Generate {num_questions} questions in this JSON format:
         return {"success": False, "error": str(e)}
 
 
+# ============================================================
+# 検定対策問題生成（gpt-4o使用）
+# ============================================================
+
+EXAM_CONFIGS = {
+    "TOEFL": {
+        "label": "TOEFL iBT",
+        "description": "inference・rhetorical purpose・vocabulary in context",
+        "type_distribution": {
+            "true_false": 0,
+            "mc_detail": 1,
+            "mc_inference": 3,
+            "mc_main_idea": 1,
+        },
+        "system_prompt": "You are an expert TOEFL iBT Academic Reading test designer with 20+ years experience.",
+        "style_note": """TOEFL iBT style:
+- inference: "What does the author imply about...?" / "What can be inferred from paragraph X?"
+- rhetorical_purpose: "Why does the author mention X?" / "What is the purpose of paragraph X?"
+- vocabulary_in_context: "The word X in paragraph Y is closest in meaning to..."
+- Distractors must be plausible to test-takers who skimmed without careful reading."""
+    },
+    "TOEIC": {
+        "label": "TOEIC L&R",
+        "description": "NOT問題・言い換え・ビジネス文書",
+        "type_distribution": {
+            "true_false": 0,
+            "mc_detail": 2,
+            "mc_inference": 1,
+            "mc_main_idea": 1,
+            "mc_not": 1,
+        },
+        "system_prompt": "You are an expert TOEIC L&R Part 7 test designer.",
+        "style_note": """TOEIC Part 7 style:
+- NOT questions: "Which is NOT mentioned in the article?" (1 question)
+- detail: specific facts with paraphrase answers
+- inference: business-context implied meaning
+- main_idea: what the article is mainly about
+- Use business/professional vocabulary and context."""
+    },
+    "EIKEN": {
+        "label": "英検（準1級〜1級）",
+        "description": "内容一致・要旨把握・語句の意味",
+        "type_distribution": {
+            "true_false": 0,
+            "mc_detail": 2,
+            "mc_inference": 1,
+            "mc_main_idea": 1,
+        },
+        "system_prompt": "You are an expert Eiken (英検) Grade Pre-1 / Grade 1 reading test designer.",
+        "style_note": """英検スタイル:
+- 内容一致問題: specific content matching with paraphrase
+- 要旨把握: main point of a paragraph or the whole passage  
+- 語句の意味: vocabulary in context
+- Questions may be in Japanese or English depending on level
+- Follow authentic 英検 question stems: 「本文の内容と一致するものを選びなさい」"""
+    },
+}
+
+
+def generate_exam_questions(text, title, exam_type="TOEFL", level="B2"):
+    """検定対策問題をgpt-4oで生成
+    
+    exam_type: "TOEFL" | "TOEIC" | "EIKEN"
+    """
+    config = EXAM_CONFIGS.get(exam_type, EXAM_CONFIGS["TOEFL"])
+    client = get_openai_client()
+
+    dist = config["type_distribution"]
+    total = sum(dist.values())
+
+    prompt = f"""{config['system_prompt']}
+
+Create {total} reading comprehension questions for this article in {config['label']} style.
+
+Article Title: {title}
+CEFR Level: {level}
+Article:
+{text}
+
+==============================
+{config['style_note']}
+==============================
+
+ANTI-CHEAT RULES (apply to ALL questions):
+1. Cannot be answered from general knowledge — requires reading THIS article.
+2. Correct answer uses paraphrase/synonyms, NOT copied text.
+3. Wrong options are plausible to someone who skimmed but did not read carefully.
+4. Include text_evidence for every question.
+
+Question type distribution: {dist}
+
+Output JSON:
+{{
+  "exam_type": "{exam_type}",
+  "questions": [
+    {{
+      "type": "<detail|inference|main_idea|rhetorical_purpose|vocabulary_in_context|not_mentioned>",
+      "question": "<Question>",
+      "question_ja": "<日本語訳（英検以外も参考用に記載）>",
+      "options": ["<A>", "<B>", "<C>", "<D>"],
+      "correct": "<Exact text of correct option>",
+      "explanation": "<Detailed EN + JA explanation>",
+      "text_evidence": "<Relevant passage excerpt>"
+    }}
+  ]
+}}"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": config["system_prompt"] + " Respond in valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        result = json.loads(response.choices[0].message.content)
+        result["success"] = True
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ============================================================
+# 既存関数（変更なし）
+# ============================================================
+
 def generate_summary_and_vocabulary(text, title, level="B1"):
-    """要約と重要語彙を生成"""
+    """要約と重要語彙を生成（gpt-4o-mini）"""
     client = get_openai_client()
     prompt = f"""Analyze this article for a Japanese English learner (Level: {level}).
 
@@ -142,8 +429,7 @@ Provide analysis in JSON format:
         "<Discussion question 2>"
     ],
     "related_topics": ["<Related topic 1>", "<Related topic 2>"]
-}}
-"""
+}}"""
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -162,7 +448,7 @@ Provide analysis in JSON format:
 
 
 def generate_article_from_prompt(prompt, level="B1", word_count=200):
-    """プロンプトから記事を生成"""
+    """プロンプトから記事を生成（gpt-4o-mini）"""
     client = get_openai_client()
     system_prompt = f"""You are a content creator for English learners. Create engaging, educational articles appropriate for {level} level Japanese university students. Articles should be approximately {word_count} words."""
     user_prompt = f"""Create a reading article based on this request: "{prompt}"
@@ -181,7 +467,7 @@ Guidelines:
 - Include some challenging words with context clues
 - Make the content interesting and relevant to university students
 - Use clear paragraph structure
-- Include specific facts, numbers, and details that can be tested (avoid vague generalities)"""
+- Include specific facts, numbers, and details that can be tested"""
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -201,37 +487,32 @@ Guidelines:
 
 
 def calculate_wpm(word_count, reading_time_seconds):
-    """読解速度（WPM）を計算"""
     if reading_time_seconds <= 0:
         return 0
     return int((word_count / reading_time_seconds) * 60)
 
 
 def get_wpm_feedback(wpm, level):
-    """WPMに基づくフィードバック"""
     targets = {
-        "A1": (50, 80),
-        "A2": (80, 120),
-        "B1": (120, 180),
-        "B2": (180, 220),
-        "C1": (220, 280)
+        "A1": (50, 80), "A2": (80, 120), "B1": (120, 180),
+        "B2": (180, 220), "C1": (220, 280)
     }
     target_min, target_max = targets.get(level, (120, 180))
     if wpm < target_min:
         return {
             "rating": "🐢 ゆっくり / Slow",
-            "message": f"目標: {target_min}-{target_max} WPM。焦らず、徐々にスピードを上げていきましょう。/ Target: {target_min}-{target_max} WPM. Take your time and gradually increase your speed.",
+            "message": f"目標: {target_min}-{target_max} WPM。焦らず、徐々にスピードを上げていきましょう。",
             "color": "orange"
         }
     elif wpm <= target_max:
         return {
             "rating": "👍 良いペース / Good pace",
-            "message": f"目標範囲内です！この調子で続けましょう。/ You're within the target range! Keep it up.",
+            "message": f"目標範囲内です！この調子で続けましょう。",
             "color": "green"
         }
     else:
         return {
             "rating": "🚀 速い / Fast",
-            "message": f"素晴らしい速さです！理解度も確認しましょう。/ Great speed! Make sure you're also comprehending well.",
+            "message": f"素晴らしい速さです！理解度も確認しましょう。",
             "color": "blue"
         }
