@@ -1093,7 +1093,7 @@ def save_quiz_result(student_id: str, list_name: str, quiz_type: str,
         module_type='vocabulary_quiz',
         course_id=course_id,
         score=score,
-        details={
+        activity_details={
             'list_name': list_name,
             'quiz_type': quiz_type,
             'total_questions': total,
