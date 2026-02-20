@@ -799,18 +799,44 @@ def show_student_ai_generator():
             st.markdown(data.get('script', ''))
 
         elif practice_mode == "audio":
-            if st.button("🔊 音声を生成", key="s_ai_audio_btn"):
-                with st.spinner("音声生成中..."):
-                    audio = generate_audio_with_openai(data.get('script', ''))
-                if audio:
-                    st.session_state['s_ai_audio_data'] = audio
-                    st.rerun()
+            # 音声リセットボタン（キャッシュが残っている場合に再生成できるように）
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                if 's_ai_audio_data' not in st.session_state:
+                    if st.button("🔊 音声を生成", type="primary", key="s_ai_audio_btn"):
+                        with st.spinner("音声生成中..."):
+                            try:
+                                is_dialogue = data.get('is_dialogue', False)
+                                speakers = data.get('speakers')
+                                if is_dialogue and speakers:
+                                    audio = generate_dialogue_audio_with_speakers(
+                                        data.get('script', ''), speakers
+                                    )
+                                else:
+                                    # 一人読み上げ時はA:、B:ラベルを除去
+                                    import re
+                                    script_clean = re.sub(r'^[A-Z]:\s*', '', data.get('script', ''), flags=re.MULTILINE)
+                                    audio = generate_audio_with_openai(script_clean)
+                            except Exception as e:
+                                st.warning(f"⚠️ 音声生成エラー: {e}")
+                                audio = None
+                        if audio:
+                            st.session_state['s_ai_audio_data'] = audio
+                            st.rerun()
+            with col2:
+                if 's_ai_audio_data' in st.session_state:
+                    if st.button("🔄 再生成", key="s_ai_audio_reset"):
+                        del st.session_state['s_ai_audio_data']
+                        st.rerun()
             if 's_ai_audio_data' in st.session_state:
                 st.audio(st.session_state['s_ai_audio_data'], format='audio/mp3')
 
         elif practice_mode == "dictation":
-            script = data.get('script', '')
-            sentences = [s.strip() for s in script.replace('\n', ' ').split('.') if len(s.strip()) > 10]
+            import re
+            script_raw = data.get('script', '')
+            # A:、B: などの話者ラベルを除去してから文に分割
+            script_clean = re.sub(r'^[A-Z]:\s*', '', script_raw, flags=re.MULTILINE)
+            sentences = [s.strip() for s in script_clean.replace('\n', ' ').split('.') if len(s.strip()) > 10]
 
             if not sentences:
                 st.warning("ディクテーション用のテキストがありません")
