@@ -210,15 +210,35 @@ def show():
     if selected_class.get('db_id'):
         try:
             db_students = get_course_students(selected_class['db_id'])
-            st.session_state.class_students[selected_class_key] = [
-                {
-                    'id': s.get('id', ''),
+            # 統計情報をまとめて取得（ポートフォリオのサマリー表示用）
+            from utils.database import get_student_practice_stats
+            from datetime import datetime, timedelta
+            now = datetime.utcnow()
+            week_ago = (now - timedelta(days=7)).isoformat()
+            built = []
+            for s in db_students:
+                sid = s.get('id', '')
+                try:
+                    stats = get_student_practice_stats(sid, days=7) or {}
+                    total_count = sum(d.get('count', 0) for d in stats.values())
+                    total_sec = sum(d.get('total_seconds', 0) for d in stats.values())
+                    all_scores = []
+                    for d in stats.values():
+                        all_scores.extend(d.get('scores', []))
+                    avg_score = round(sum(all_scores) / len(all_scores), 1) if all_scores else 0
+                except Exception:
+                    total_count, total_sec, avg_score = 0, 0, 0
+                built.append({
+                    'id': sid,
                     'name': s.get('name', ''),
                     'email': s.get('email', ''),
                     'student_id': s.get('student_id', ''),
-                }
-                for s in db_students
-            ]
+                    'practice_count': total_count,
+                    'weekly_study_minutes': round(total_sec / 60),
+                    'avg_score': avg_score,
+                    'days_since_active': 99,  # 必要なら別途取得
+                })
+            st.session_state.class_students[selected_class_key] = built
         except Exception as e:
             st.warning(f"学生データ取得エラー: {e}")
 

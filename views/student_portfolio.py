@@ -34,9 +34,9 @@ def show_portfolio_teacher_view(student):
     st.caption(f"学籍番号: {student.get('student_id', 'N/A')} | 最終活動: {days_text}")
     st.markdown("---")
 
-    tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "👤 プロフィール", "📊 サマリー", "📝 学習履歴",
-        "💬 提出物・フィードバック", "📈 成長記録", "📓 教員メモ"
+        "💬 提出物・フィードバック", "📈 成長記録", "📓 授業外学習", "📓 教員メモ"
     ])
     sid = student.get('user_id', student.get('id', ''))
     with tab0:
@@ -50,16 +50,29 @@ def show_portfolio_teacher_view(student):
     with tab4:
         show_growth_record(sid)
     with tab5:
+        show_extracurricular_logs(sid)
+    with tab6:
         show_teacher_notes(student)
 
 
 MODULE_LABELS = {
+    'speaking': '🎤 スピーキング',
     'speaking_pronunciation': '🎤 発音練習',
     'speaking_chat': '💬 会話練習',
-    'writing_practice': '✍️ ライティング',
-    'listening_practice': '👂 リスニング',
-    'reading_practice': '📖 リーディング',
-    'vocabulary_review': '📚 語彙学習',
+    'speaking_read_aloud': '🎤 音読練習',
+    'writing': '✍️ ライティング',
+    'writing_practice': '✍️ ライティング練習',
+    'writing_submission': '✍️ ライティング提出',
+    'reading': '📖 リーディング',
+    'reading_practice': '📖 リーディング練習',
+    'listening': '👂 リスニング',
+    'listening_practice': '👂 リスニング練習',
+    'listening_dictation': '👂 ディクテーション',
+    'listening_youtube': '👂 YouTube学習',
+    'vocabulary': '📚 語彙学習',
+    'vocabulary_quiz': '📚 語彙クイズ',
+    'vocabulary_flashcard': '📚 フラッシュカード',
+    'vocabulary_exercise': '📚 語彙練習',
     'exam_practice': '📝 検定練習',
 }
 
@@ -139,14 +152,29 @@ def show_student_profile_readonly(student, student_id):
 def show_portfolio_summary(student, student_id):
     """サマリータブ"""
     st.markdown("### 📊 学習サマリー")
+    # DB から直接取得（teacher_homeから渡された値があればそれを優先）
+    avg = student.get('avg_score', 0)
+    practice_count = student.get('practice_count', 0)
+    weekly_minutes = student.get('weekly_study_minutes', 0)
+    if avg == 0 and practice_count == 0:
+        try:
+            from utils.database import get_student_practice_stats
+            stats = get_student_practice_stats(student_id, days=7) or {}
+            practice_count = sum(d.get('count', 0) for d in stats.values())
+            weekly_minutes = round(sum(d.get('total_seconds', 0) for d in stats.values()) / 60)
+            all_sc = []
+            for d in stats.values():
+                all_sc.extend(d.get('scores', []))
+            avg = round(sum(all_sc) / len(all_sc), 1) if all_sc else 0
+        except Exception:
+            pass
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        avg = student.get('avg_score', 0)
         st.metric("平均スコア", f"{avg:.1f}点" if avg > 0 else "-")
     with col2:
-        st.metric("練習回数（今週）", f"{student.get('practice_count', 0)}回")
+        st.metric("練習回数（今週）", f"{practice_count}回")
     with col3:
-        st.metric("今週の学習時間", f"{student.get('weekly_study_minutes', 0)}分")
+        st.metric("今週の学習時間", f"{weekly_minutes}分")
     with col4:
         st.metric("課題提出", f"{student.get('submissions', 0)}/{student.get('total_assignments', 0)}")
 
@@ -244,8 +272,15 @@ def show_learning_history(student_id):
     col1, col2 = st.columns(2)
     with col1:
         module_filter = st.selectbox("モジュール",
-            ["全て", "speaking", "reading_practice", "listening_practice"],
-            format_func=lambda x: {"全て": "全て", "speaking": "🎤 スピーキング", "reading_practice": "📖 リーディング", "listening_practice": "👂 リスニング"}.get(x, x))
+            ["全て", "speaking", "writing", "vocabulary", "reading_practice", "listening_practice"],
+            format_func=lambda x: {
+                "全て": "全て",
+                "speaking": "🎤 スピーキング",
+                "writing": "✍️ ライティング",
+                "vocabulary": "📚 語彙",
+                "reading_practice": "📖 リーディング",
+                "listening_practice": "👂 リスニング",
+            }.get(x, x))
     with col2:
         days_map = {"今週": 7, "今月": 30, "過去3ヶ月": 90, "全期間": 365}
         period = st.selectbox("期間", list(days_map.keys()))
@@ -253,11 +288,24 @@ def show_learning_history(student_id):
 
     st.markdown("---")
     module_type = module_filter if module_filter != "全て" else None
+    # writing/vocabulary は複数のmodule_typeをまとめて検索
+    MODULE_GROUPS = {
+        'speaking': ['speaking', 'speaking_pronunciation', 'speaking_chat', 'speaking_read_aloud'],
+        'writing': ['writing', 'writing_practice', 'writing_submission'],
+        'vocabulary': ['vocabulary', 'vocabulary_quiz', 'vocabulary_flashcard', 'vocabulary_exercise'],
+    }
     try:
         from utils.database import get_student_practice_details, get_student_listening_logs
         all_logs = []
         if module_type != "listening_practice":
-            for log in (get_student_practice_details(student_id, days=days, module_type=module_type) or []):
+            if module_type in MODULE_GROUPS:
+                # グループ内の全module_typeを取得してマージ
+                raw = []
+                for mt in MODULE_GROUPS[module_type]:
+                    raw.extend(get_student_practice_details(student_id, days=days, module_type=mt) or [])
+            else:
+                raw = get_student_practice_details(student_id, days=days, module_type=module_type) or []
+            for log in raw:
                 details = log.get("activity_details") or {}
                 dt = log.get("practiced_at", "")[:16].replace("T", " ")
                 module = MODULE_LABELS.get(log.get("module_type", ""), log.get("module_type", ""))
@@ -451,6 +499,125 @@ def show_growth_record(student_id):
             st.markdown(m)
     except Exception:
         st.info("マイルストーンの判定に失敗しました")
+
+
+def show_extracurricular_logs(student_id):
+    """授業外学習ログタブ（教員閲覧用）"""
+    st.markdown("### 📝 授業外学習ログ")
+    st.caption("学生が記録した授業外の外国語学習活動")
+
+    ACTIVITY_CATEGORIES = {
+        "movie": "🎬 映画・ドラマ視聴",
+        "reading": "📖 読書",
+        "podcast": "🎧 ポッドキャスト",
+        "conversation": "💬 会話・言語交換",
+        "app": "📱 アプリ学習",
+        "video": "📺 YouTube・動画",
+        "writing": "✍️ ライティング・日記",
+        "music": "🎵 音楽・歌詞",
+        "game": "🎮 ゲーム",
+        "class": "📚 他の授業・講座",
+        "other": "📝 その他",
+    }
+    STATUS_LABELS = {
+        "approved": "✅ 承認済み",
+        "pending": "⏳ 確認待ち",
+        "rejected": "❌ 却下",
+    }
+
+    try:
+        from utils.database import get_student_learning_logs
+        logs = get_student_learning_logs(student_id, limit=200)
+    except Exception as e:
+        st.error(f"授業外学習ログの取得に失敗: {e}")
+        return
+
+    if not logs:
+        st.info("まだ授業外学習の記録がありません")
+        return
+
+    # サマリー
+    total_minutes = sum(l.get("duration_minutes", 0) for l in logs)
+    total_points = sum(l.get("points", 0) for l in logs)
+    approved_points = sum(l.get("points", 0) for l in logs if l.get("status") == "approved")
+    pending_count = sum(1 for l in logs if l.get("status", "pending") == "pending")
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        h, m = total_minutes // 60, total_minutes % 60
+        st.metric("累計学習時間", f"{h}h {m}m")
+    with col2:
+        st.metric("累計ポイント", f"{total_points}pt")
+    with col3:
+        st.metric("承認済みポイント", f"{approved_points}pt")
+    with col4:
+        st.metric("承認待ち", f"{pending_count}件")
+
+    st.markdown("---")
+
+    # 承認待ちを先に表示
+    pending = [l for l in logs if l.get("status", "pending") == "pending"]
+    if pending:
+        st.markdown("#### ⏳ 承認待ち")
+        for log in pending:
+            cat = log.get("category", "other")
+            cat_name = ACTIVITY_CATEGORIES.get(cat, cat)
+            date = (log.get("log_date") or log.get("created_at") or "")[:10]
+            title = log.get("title", "")
+            pts = log.get("points", 0)
+            mins = log.get("duration_minutes", 0)
+            log_id = log.get("id", "")
+            with st.expander(f"⏳ {date} — {title} (+{pts}pt)"):
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.markdown(f"- **カテゴリ:** {cat_name}")
+                    st.markdown(f"- **時間:** {mins}分")
+                    if log.get("description"):
+                        st.markdown(f"- **詳細:** {log['description']}")
+                    if log.get("evidence_url"):
+                        st.markdown(f"- **証拠URL:** {log['evidence_url']}")
+                with col2:
+                    st.metric("ポイント", f"+{pts}")
+                    # 承認/却下ボタン
+                    try:
+                        from utils.database import update_learning_log
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            if st.button("✅", key=f"approve_{log_id}", help="承認"):
+                                update_learning_log(log_id, {"status": "approved"})
+                                st.success("承認しました")
+                                st.rerun()
+                        with col_b:
+                            if st.button("❌", key=f"reject_{log_id}", help="却下"):
+                                update_learning_log(log_id, {"status": "rejected"})
+                                st.warning("却下しました")
+                                st.rerun()
+                    except Exception:
+                        pass
+        st.markdown("---")
+
+    # 全ログ一覧
+    st.markdown(f"#### 📋 全記録 ({len(logs)}件)")
+    for log in logs:
+        cat = log.get("category", "other")
+        cat_name = ACTIVITY_CATEGORIES.get(cat, cat)
+        date = (log.get("log_date") or log.get("created_at") or "")[:10]
+        title = log.get("title", "")
+        pts = log.get("points", 0)
+        mins = log.get("duration_minutes", 0)
+        status = log.get("status", "pending")
+        status_label = STATUS_LABELS.get(status, status)
+        with st.expander(f"{status_label} {date} — {title} (+{pts}pt)"):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown(f"- **カテゴリ:** {cat_name}")
+                st.markdown(f"- **時間:** {mins}分")
+                if log.get("description"):
+                    st.markdown(f"- **詳細:** {log['description']}")
+                if log.get("evidence_url"):
+                    st.markdown(f"- **証拠URL:** {log['evidence_url']}")
+            with col2:
+                st.metric("ポイント", f"+{pts}")
 
 
 def show_teacher_notes(student):
