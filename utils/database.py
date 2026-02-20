@@ -231,23 +231,6 @@ def get_student_enrollments(student_id: str) -> List[Dict]:
     return result.data
 
 
-def get_primary_course_id(student_id: str) -> str | None:
-    """学生のメインcourse_idをenrollmentsから直接取得（joinなし・安定版）"""
-    try:
-        supabase = get_supabase_client()
-        result = supabase.table('enrollments')\
-            .select('course_id')\
-            .eq('student_id', student_id)\
-            .order('enrolled_at')\
-            .limit(1)\
-            .execute()
-        if result.data:
-            return result.data[0].get('course_id')
-    except Exception:
-        pass
-    return None
-
-
 def get_all_students() -> List[Dict]:
     """全学生一覧を取得（教員用）"""
     supabase = get_supabase_client()
@@ -1820,6 +1803,140 @@ def get_student_practice_details(student_id: str, days: int = 30,
     
     result = query.execute()
     return result.data if result.data else []
+
+
+# ============================================================
+# Grade Aggregation (成績集計 — grades.py用)
+# ============================================================
+
+def get_module_scores_for_course(course_id: str) -> List[Dict]:
+    """コース全学生のモジュール別スコアを集計（成績計算用）
+    
+    Returns list of dicts per student:
+    {
+        user_id, name, student_id, email,
+        speaking_avg, speaking_count,
+        writing_avg, writing_count,
+        vocabulary_avg, vocabulary_count,
+        reading_avg, reading_count,
+        listening_avg, listening_count,
+        assignment_avg, assignment_count,
+    }
+    """
+    supabase = get_supabase_client()
+
+    # 受講学生一覧
+    enrollments = supabase.table('enrollments')\
+        .select('student_id, users(id, name, email, student_id)')\
+        .eq('course_id', course_id)\
+        .execute()
+
+    if not enrollments.data:
+        return []
+
+    # module_type → カテゴリマッピング
+    MODULE_CATEGORY = {
+        'speaking': 'speaking',
+        'speaking_chat': 'speaking',
+        'speaking_pronunciation': 'speaking',
+        'writing_practice': 'writing',
+        'writing_submission': 'writing',
+        'writing_translation': 'writing',
+        'vocabulary_quiz': 'vocabulary',
+        'vocabulary_flashcard': 'vocabulary',
+        'reading_practice': 'reading',
+        'listening_practice': 'listening',
+    }
+
+    results = []
+    for e in enrollments.data:
+        user = e.get('users') or {}
+        sid = e['student_id']
+        uid = user.get('id', sid)
+
+        # practice_logs 全件取得（course_id絞り込み）
+        logs_res = supabase.table('practice_logs')\
+            .select('module_type, score')\
+            .eq('student_id', uid)\
+            .eq('course_id', course_id)\
+            .execute()
+
+        # カテゴリ別スコア集計
+        cat_scores: dict = {
+            'speaking': [], 'writing': [], 'vocabulary': [],
+            'reading': [], 'listening': []
+        }
+        for log in (logs_res.data or []):
+            cat = MODULE_CATEGORY.get(log.get('module_type', ''))
+            sc = log.get('score')
+            if cat and sc is not None:
+                cat_scores[cat].append(float(sc))
+
+        def avg(lst):
+            return round(sum(lst) / len(lst), 1) if lst else None
+
+        # 課題提出スコア（submissions）
+        subs_res = supabase.table('submissions')\
+            .select('total_score')\
+            .eq('student_id', uid)\
+            .eq('course_id', course_id)\
+            .execute()
+        sub_scores = [
+            float(s['total_score']) for s in (subs_res.data or [])
+            if s.get('total_score') is not None
+        ]
+
+        results.append({
+            'user_id': uid,
+            'name': user.get('name', '不明'),
+            'student_id': user.get('student_id', ''),
+            'email': user.get('email', ''),
+            'speaking_avg': avg(cat_scores['speaking']),
+            'speaking_count': len(cat_scores['speaking']),
+            'writing_avg': avg(cat_scores['writing']),
+            'writing_count': len(cat_scores['writing']),
+            'vocabulary_avg': avg(cat_scores['vocabulary']),
+            'vocabulary_count': len(cat_scores['vocabulary']),
+            'reading_avg': avg(cat_scores['reading']),
+            'reading_count': len(cat_scores['reading']),
+            'listening_avg': avg(cat_scores['listening']),
+            'listening_count': len(cat_scores['listening']),
+            'assignment_avg': avg(sub_scores),
+            'assignment_count': len(sub_scores),
+        })
+
+    return results
+
+
+def get_grade_weights(course_id: str) -> Dict:
+    """成績配分をcourse_settingsから取得（なければデフォルト値を返す）"""
+    defaults = {
+        'speaking': 20,
+        'writing': 20,
+        'vocabulary': 15,
+        'reading': 15,
+        'listening': 15,
+        'assignment': 15,
+        'attendance': 0,
+    }
+    try:
+        settings = get_course_settings(course_id)
+        if settings and settings.get('grade_weights'):
+            saved = settings['grade_weights']
+            # デフォルトに上書きマージ（新項目が増えても壊れない）
+            return {**defaults, **saved}
+    except Exception:
+        pass
+    return defaults
+
+
+def save_grade_weights(course_id: str, weights: Dict) -> bool:
+    """成績配分をcourse_settingsに保存"""
+    try:
+        upsert_course_settings(course_id, {'grade_weights': weights})
+        return True
+    except Exception:
+        return False
 
 
 # ============================================================
