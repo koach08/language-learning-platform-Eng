@@ -525,14 +525,14 @@ def show_youtube_dictation(exercises):
     if user_input and st.button("✅ チェック", type="primary", key="dict_check"):
         result = check_dictation(original, user_input)
         if result.get("success"):
-            accuracy = result.get('accuracy_percentage', 0)
-            st.metric("正確さ", f"{accuracy}%")
-            with st.expander("正解"):
-                st.markdown(original)
+            st.session_state['yt_dict_result'] = result
+            st.session_state['yt_dict_original'] = original
+            # DB保存
             try:
                 user = get_current_user()
                 if user:
                     from utils.database import log_listening, log_practice
+                    accuracy = result.get('accuracy_percentage', 0)
                     log_listening(
                         student_id=user['id'],
                         course_id=get_student_course_id(user),
@@ -549,6 +549,55 @@ def show_youtube_dictation(exercises):
                     )
             except Exception as e:
                 st.warning(f"⚠️ 学習記録の保存に失敗しました: {e}")
+            st.rerun()
+
+    # チェック結果の表示
+    if 'yt_dict_result' in st.session_state:
+        result = st.session_state['yt_dict_result']
+        original_text = st.session_state.get('yt_dict_original', original)
+        accuracy = result.get('accuracy_percentage', 0)
+        st.metric("正確さ", f"{accuracy}%")
+
+        errors = result.get('errors', [])
+        if errors:
+            st.markdown("**❌ 間違い箇所:**")
+            for e in errors:
+                st.markdown(f"- ~~{e.get('user_wrote')}~~ → **{e.get('should_be')}** （{e.get('error_type', '')}）")
+
+            st.markdown("---")
+            st.markdown("#### 🔁 間違い箇所を集中練習")
+            retry_phrases = [e.get('should_be', '') for e in errors if e.get('should_be')]
+            for ri, phrase in enumerate(retry_phrases):
+                with st.expander(f"練習 {ri+1}: 「{phrase}」", expanded=True):
+                    retry_audio_key = f"yt_retry_audio_{idx}_{ri}"
+                    if st.button("🔊 音声を再生", key=f"yt_retry_play_{idx}_{ri}"):
+                        with st.spinner("生成中..."):
+                            audio = generate_audio_with_openai(phrase)
+                        if audio:
+                            st.session_state[retry_audio_key] = audio
+                            st.rerun()
+                    if retry_audio_key in st.session_state:
+                        st.audio(st.session_state[retry_audio_key], format='audio/mp3')
+                    retry_input = st.text_input(
+                        "聞こえた通りに入力",
+                        key=f"yt_retry_input_{idx}_{ri}",
+                        placeholder="Type what you hear..."
+                    )
+                    if st.button("✅ 確認", key=f"yt_retry_check_{idx}_{ri}"):
+                        if retry_input.strip().lower() == phrase.lower():
+                            st.success("✅ 正解！")
+                        else:
+                            st.error(f"❌ 正解: **{phrase}**")
+        else:
+            if result.get('feedback'):
+                st.info(f"💬 {result.get('feedback')}")
+
+        with st.expander("正解を確認"):
+            st.markdown(f"**{original_text}**")
+
+        if st.button("🔄 もう一度", key="yt_dict_retry"):
+            del st.session_state['yt_dict_result']
+            st.rerun()
 
 
 def show_listening_practice():
@@ -747,17 +796,64 @@ def show_material_dictation(material, material_key):
             result = check_dictation(sentence, user_input)
             if result.get("success"):
                 accuracy = result.get('accuracy_percentage', 0)
-                st.metric("正確さ", f"{accuracy}%")
-                if accuracy == 100:
-                    st.success("🎉 完璧です！")
-                elif accuracy >= 80:
-                    st.success("✅ よくできました！")
-                else:
-                    st.info("💪 もう一度聞いてみましょう")
-                if result.get('feedback'):
-                    st.info(f"💬 {result.get('feedback')}")
-                with st.expander("正解を確認"):
-                    st.markdown(f"**{sentence}**")
+                st.session_state[f"dict_result_{material_key}_{idx}"] = result
+                st.rerun()
+
+    # チェック結果の表示（rerun後も残る）
+    result_key = f"dict_result_{material_key}_{idx}"
+    if result_key in st.session_state:
+        result = st.session_state[result_key]
+        accuracy = result.get('accuracy_percentage', 0)
+        st.metric("正確さ", f"{accuracy}%")
+        if accuracy == 100:
+            st.success("🎉 完璧です！")
+        elif accuracy >= 80:
+            st.success("✅ よくできました！")
+        else:
+            st.info("💪 もう一度聞いてみましょう")
+
+        # 間違い箇所の表示
+        errors = result.get('errors', [])
+        if errors:
+            st.markdown("**❌ 間違い箇所:**")
+            for e in errors:
+                st.markdown(f"- ~~{e.get('user_wrote')}~~ → **{e.get('should_be')}** （{e.get('error_type', '')}）")
+
+            # 間違い箇所のみ反復練習
+            st.markdown("---")
+            st.markdown("#### 🔁 間違い箇所を集中練習")
+            retry_phrases = [e.get('should_be', '') for e in errors if e.get('should_be')]
+            for ri, phrase in enumerate(retry_phrases):
+                with st.expander(f"練習 {ri+1}: 「{phrase}」", expanded=True):
+                    retry_audio_key = f"retry_audio_{material_key}_{idx}_{ri}"
+                    if st.button("🔊 音声を再生", key=f"retry_play_{material_key}_{idx}_{ri}"):
+                        with st.spinner("生成中..."):
+                            audio = generate_audio_with_openai(phrase)
+                        if audio:
+                            st.session_state[retry_audio_key] = audio
+                            st.rerun()
+                    if retry_audio_key in st.session_state:
+                        st.audio(st.session_state[retry_audio_key], format='audio/mp3')
+                    retry_input = st.text_input(
+                        "聞こえた通りに入力",
+                        key=f"retry_input_{material_key}_{idx}_{ri}",
+                        placeholder=f"Type what you hear..."
+                    )
+                    if st.button("✅ 確認", key=f"retry_check_{material_key}_{idx}_{ri}"):
+                        if retry_input.strip().lower() == phrase.lower():
+                            st.success("✅ 正解！")
+                        else:
+                            st.error(f"❌ 正解: **{phrase}**")
+        else:
+            if result.get('feedback'):
+                st.info(f"💬 {result.get('feedback')}")
+
+        with st.expander("正解を確認"):
+            st.markdown(f"**{sentence}**")
+
+        if st.button("🔄 この文をもう一度", key=f"dict_retry_{material_key}_{idx}"):
+            del st.session_state[result_key]
+            st.rerun()
 
 
 def show_student_ai_generator():
