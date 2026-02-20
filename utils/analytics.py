@@ -69,6 +69,9 @@ def get_analytics_data(days: int = 30) -> dict:
 
         logs = result.data or []
         data = _aggregate_logs(logs)
+        # NOTE: reading_logs / listening_logs は practice_logs にも同時記録されるため
+        # ここでは統合しない（二重カウント防止）。
+        # analytics の集計は practice_logs のみで完結する設計。
 
     except Exception:
         # DB接続失敗時は空データを返す（session_stateの古いデータがあれば使う）
