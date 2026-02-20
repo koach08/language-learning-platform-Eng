@@ -149,25 +149,58 @@ def show_student_profile_readonly(student, student_id):
             st.markdown(f"**目標:** {profile['english_goals']}")
 
 
+def _get_all_stats(student_id: str, days: int = 7):
+    """practice_logs / reading_logs / listening_logs を統合して集計"""
+    from utils.database import get_student_practice_stats, get_student_reading_logs, get_student_listening_logs
+    # practice_logs
+    stats = get_student_practice_stats(student_id, days=days) or {}
+    total_count = sum(d.get('count', 0) for d in stats.values())
+    total_sec = sum(d.get('total_seconds', 0) for d in stats.values())
+    all_scores = []
+    for d in stats.values():
+        all_scores.extend(d.get('scores', []))
+
+    # reading_logs
+    reading_rows = get_student_reading_logs(student_id, days=days) or []
+    for r in reading_rows:
+        total_count += 1
+        total_sec += r.get('time_spent_seconds') or 0
+        qs = r.get('quiz_score')
+        if qs is not None:
+            all_scores.append(float(qs))
+    if reading_rows:
+        reading_count = len(reading_rows)
+        reading_sec = sum(r.get('time_spent_seconds') or 0 for r in reading_rows)
+        reading_scores = [float(r['quiz_score']) for r in reading_rows if r.get('quiz_score') is not None]
+        stats['reading_logs'] = {'count': reading_count, 'total_seconds': reading_sec, 'scores': reading_scores}
+
+    # listening_logs
+    listening_rows = get_student_listening_logs(student_id, days=days) or []
+    for l in listening_rows:
+        total_count += 1
+        total_sec += l.get('time_spent_seconds') or 0
+        qs = l.get('quiz_score')
+        if qs is not None:
+            all_scores.append(float(qs))
+    if listening_rows:
+        listening_count = len(listening_rows)
+        listening_sec = sum(l.get('time_spent_seconds') or 0 for l in listening_rows)
+        listening_scores = [float(l['quiz_score']) for l in listening_rows if l.get('quiz_score') is not None]
+        stats['listening_logs'] = {'count': listening_count, 'total_seconds': listening_sec, 'scores': listening_scores}
+
+    avg = round(sum(all_scores) / len(all_scores), 1) if all_scores else 0
+    return stats, total_count, round(total_sec / 60), avg
+
+
 def show_portfolio_summary(student, student_id):
     """サマリータブ"""
     st.markdown("### 📊 学習サマリー")
-    # DB から直接取得（teacher_homeから渡された値があればそれを優先）
-    avg = student.get('avg_score', 0)
-    practice_count = student.get('practice_count', 0)
-    weekly_minutes = student.get('weekly_study_minutes', 0)
-    if avg == 0 and practice_count == 0:
-        try:
-            from utils.database import get_student_practice_stats
-            stats = get_student_practice_stats(student_id, days=7) or {}
-            practice_count = sum(d.get('count', 0) for d in stats.values())
-            weekly_minutes = round(sum(d.get('total_seconds', 0) for d in stats.values()) / 60)
-            all_sc = []
-            for d in stats.values():
-                all_sc.extend(d.get('scores', []))
-            avg = round(sum(all_sc) / len(all_sc), 1) if all_sc else 0
-        except Exception:
-            pass
+    # practice_logs + reading_logs + listening_logs を統合
+    try:
+        stats_7, practice_count, weekly_minutes, avg = _get_all_stats(student_id, days=7)
+    except Exception:
+        stats_7, practice_count, weekly_minutes, avg = {}, 0, 0, 0
+
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("平均スコア", f"{avg:.1f}点" if avg > 0 else "-")
@@ -181,11 +214,20 @@ def show_portfolio_summary(student, student_id):
     st.markdown("---")
     st.markdown("### 📊 モジュール別の練習状況（直近30日）")
     try:
-        from utils.database import get_student_practice_stats
-        stats = get_student_practice_stats(student_id, days=30)
-        if stats:
-            for module, data in stats.items():
-                label = MODULE_LABELS.get(module, module)
+        stats_30, _, _, _ = _get_all_stats(student_id, days=30)
+        MODULE_DISPLAY = {
+            **MODULE_LABELS,
+            'reading_logs': '📖 リーディング',
+            'listening_logs': '👂 リスニング',
+        }
+        if stats_30:
+            col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+            with col1: st.caption("モジュール")
+            with col2: st.caption("回数")
+            with col3: st.caption("時間")
+            with col4: st.caption("平均スコア")
+            for module, data in stats_30.items():
+                label = MODULE_DISPLAY.get(module, module)
                 count = data.get('count', 0)
                 minutes = round(data.get('total_seconds', 0) / 60)
                 scores = data.get('scores', [])

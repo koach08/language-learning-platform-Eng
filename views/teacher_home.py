@@ -210,11 +210,10 @@ def show():
     if selected_class.get('db_id'):
         try:
             db_students = get_course_students(selected_class['db_id'])
-            # 統計情報をまとめて取得（ポートフォリオのサマリー表示用）
-            from utils.database import get_student_practice_stats
-            from datetime import datetime, timedelta
-            now = datetime.utcnow()
-            week_ago = (now - timedelta(days=7)).isoformat()
+            # 統計情報をまとめて取得（practice_logs + reading_logs + listening_logs）
+            from utils.database import (get_student_practice_stats,
+                                        get_student_reading_logs,
+                                        get_student_listening_logs)
             built = []
             for s in db_students:
                 sid = s.get('id', '')
@@ -225,6 +224,16 @@ def show():
                     all_scores = []
                     for d in stats.values():
                         all_scores.extend(d.get('scores', []))
+                    # reading_logs
+                    r_logs = get_student_reading_logs(sid, days=7) or []
+                    total_count += len(r_logs)
+                    total_sec += sum(r.get('time_spent_seconds') or 0 for r in r_logs)
+                    all_scores += [float(r['quiz_score']) for r in r_logs if r.get('quiz_score') is not None]
+                    # listening_logs
+                    l_logs = get_student_listening_logs(sid, days=7) or []
+                    total_count += len(l_logs)
+                    total_sec += sum(l.get('time_spent_seconds') or 0 for l in l_logs)
+                    all_scores += [float(l['quiz_score']) for l in l_logs if l.get('quiz_score') is not None]
                     avg_score = round(sum(all_scores) / len(all_scores), 1) if all_scores else 0
                 except Exception:
                     total_count, total_sec, avg_score = 0, 0, 0
@@ -236,7 +245,7 @@ def show():
                     'practice_count': total_count,
                     'weekly_study_minutes': round(total_sec / 60),
                     'avg_score': avg_score,
-                    'days_since_active': 99,  # 必要なら別途取得
+                    'days_since_active': 99,
                 })
             st.session_state.class_students[selected_class_key] = built
         except Exception as e:
