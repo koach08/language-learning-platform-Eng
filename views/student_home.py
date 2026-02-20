@@ -311,17 +311,50 @@ def show_extracurricular_summary(user):
     st.markdown("### 📝 授業外学習")
     st.caption("映画、読書、アプリなど授業外で行った外国語学習を記録して成績に反映！")
 
-    user_email = user.get('email', user.get('name', 'default'))
-    logs = st.session_state.get('learning_logs', {}).get(user_email, [])
+    # learning_log.pyと同じキャッシュキーを使用、なければDBから取得
+    user_id = user.get('id', '')
+    cache_key = f'_learning_logs_{user_id}'
+    logs = st.session_state.get(cache_key)
+
+    if logs is None:
+        try:
+            from utils.database import get_student_learning_logs
+            from views.learning_log import ACTIVITY_CATEGORIES, LANGUAGES
+            db_logs = get_student_learning_logs(user_id, limit=200)
+            logs = []
+            for row in db_logs:
+                cat = row.get('category', 'other')
+                lang = row.get('language', 'english')
+                logs.append({
+                    'id': row['id'],
+                    'date': row.get('log_date', ''),
+                    'category': cat,
+                    'category_name': ACTIVITY_CATEGORIES.get(cat, {}).get('name', cat),
+                    'language': lang,
+                    'language_name': LANGUAGES.get(lang, lang),
+                    'title': row.get('title', ''),
+                    'duration_minutes': row.get('duration_minutes', 0),
+                    'points': row.get('points', 0),
+                    'status': row.get('status', 'pending'),
+                })
+            st.session_state[cache_key] = logs
+        except Exception:
+            logs = []
 
     # 今週
     today = datetime.now().date()
     start_of_week = today - timedelta(days=today.weekday())
-    week_logs = [l for l in logs if datetime.strptime(l['date'], "%Y-%m-%d").date() >= start_of_week]
+    week_logs = []
+    for l in logs:
+        try:
+            if datetime.strptime(l['date'][:10], "%Y-%m-%d").date() >= start_of_week:
+                week_logs.append(l)
+        except Exception:
+            pass
 
-    total_minutes = sum(l['duration_minutes'] for l in week_logs)
-    total_points = sum(l['points'] for l in week_logs)
-    all_time_points = sum(l['points'] for l in logs)
+    total_minutes = sum(l.get('duration_minutes', 0) for l in week_logs)
+    total_points = sum(l.get('points', 0) for l in week_logs)
+    all_time_points = sum(l.get('points', 0) for l in logs)
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
