@@ -59,13 +59,23 @@ def show():
 # データ読み込み・計算ヘルパー
 # ============================================================
 
-def _load_module_scores(course_id: str) -> list:
+def _load_module_scores(course_id: str, force_reload: bool = False) -> list:
+    import time
+    cache_key = f'module_scores_{course_id}'
+    cache_ts_key = f'module_scores_ts_{course_id}'
+    ttl = 300  # 5分
+
+    if not force_reload:
+        cached = st.session_state.get(cache_key)
+        cached_ts = st.session_state.get(cache_ts_key, 0)
+        if cached is not None and (time.time() - cached_ts) < ttl:
+            return cached
+
     if not course_id:
         return []
     try:
         from utils.database import get_module_scores_for_course, get_extracurricular_score_for_course
         students = get_module_scores_for_course(course_id)
-        # 授業外学習スコアをマージ
         extra_map = get_extracurricular_score_for_course(course_id) or {}
         for s in students:
             uid = s.get('user_id', s.get('id', ''))
@@ -73,6 +83,8 @@ def _load_module_scores(course_id: str) -> list:
             s['extracurricular_score'] = extra.get('score', 0.0)
             s['extracurricular_points'] = extra.get('approved_points', 0)
             s['extracurricular_count'] = extra.get('log_count', 0)
+        st.session_state[cache_key] = students
+        st.session_state[cache_ts_key] = time.time()
         return students
     except Exception as e:
         st.error(f"モジュールスコアの取得に失敗しました: {e}")
