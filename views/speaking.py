@@ -1199,10 +1199,14 @@ def show_speech_practice(user):
     
     try:
         from utils.mic_recorder import show_mic_or_upload
-        speech_audio = show_mic_or_upload(key_prefix="speech_rec", allow_upload=False)
+        import hashlib
+        topic_hash = hashlib.md5(topic.encode()).hexdigest()[:8]
+        speech_audio = show_mic_or_upload(key_prefix=f"speech_rec_{topic_hash}", allow_upload=False)
     except Exception:
         speech_audio = None
-        uploaded = st.file_uploader("音声をアップロード", type=['wav', 'mp3', 'm4a'], key="speech_upload")
+        import hashlib
+        topic_hash = hashlib.md5(topic.encode()).hexdigest()[:8]
+        uploaded = st.file_uploader("音声をアップロード", type=['wav', 'mp3', 'm4a'], key=f"speech_upload_{topic_hash}")
         if uploaded:
             speech_audio = uploaded.read()
             st.audio(speech_audio)
