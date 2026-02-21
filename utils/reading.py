@@ -531,3 +531,151 @@ def get_wpm_feedback(wpm, level):
             "message": f"素晴らしい速さです！理解度も確認しましょう。",
             "color": "blue"
         }
+
+
+# ============================================================
+# レベル別チェック方式の統合関数
+# ============================================================
+
+def generate_level_based_questions(text, title, level="B1", num_questions=5):
+    """レベルに応じたチェック方式を選択して問題を生成
+    
+    A1/A2: True/False のみ（本文参照可）
+    B1:    True/False + 4択
+    B2+:   4択 + 記述式要約1問
+    """
+    if level in ("A1", "A2"):
+        # True/Falseのみ
+        result = _generate_true_false(text, title, num_questions, level)
+        if result.get("success"):
+            return {"success": True, "questions": result.get("questions", []), "has_essay": False}
+        return result
+
+    elif level == "B1":
+        # True/False + 4択（既存のgenerate_comprehension_questionsと同じ）
+        result = generate_comprehension_questions(text, title, num_questions, level)
+        result["has_essay"] = False
+        return result
+
+    else:
+        # B2以上: 4択 + 記述式1問
+        mc_result = generate_comprehension_questions(text, title, num_questions - 1, level)
+        essay_result = generate_essay_question(text, title, level)
+        
+        questions = mc_result.get("questions", []) if mc_result.get("success") else []
+        essay = essay_result.get("question") if essay_result.get("success") else None
+        
+        return {
+            "success": True,
+            "questions": questions,
+            "has_essay": True,
+            "essay_question": essay,
+        }
+
+
+def generate_essay_question(text, title, level="B2"):
+    """記述式要約問題を生成"""
+    client = get_openai_client()
+    
+    word_limit = {"B2": 60, "C1": 80, "C2": 100}.get(level, 60)
+    
+    prompt = f"""You are an EFL test designer. Create ONE open-ended essay question for this article.
+
+Article Title: {title}
+Level: {level}
+Article:
+{text}
+
+Requirements:
+- The question must require the student to demonstrate understanding of THIS article's specific content
+- Cannot be answered without reading this article
+- Should ask for the student's own words (paraphrase, not copy)
+- Appropriate for {level} level English learners
+- Word limit for answer: {word_limit} words
+
+Also provide:
+- key_points: 3-5 essential points that a good answer should include (from the article)
+- sample_answer: A model answer in {word_limit} words or fewer
+
+Output JSON:
+{{
+  "question": "<The essay question in English>",
+  "question_ja": "<日本語での質問>",
+  "word_limit": {word_limit},
+  "key_points": ["<point1>", "<point2>", "<point3>"],
+  "sample_answer": "<Model answer>"
+}}"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are an expert EFL test designer. Respond in valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=1000,
+            response_format={"type": "json_object"}
+        )
+        result = json.loads(response.choices[0].message.content)
+        result["success"] = True
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def evaluate_essay_answer(student_answer, essay_question, key_points, original_text, word_limit=60):
+    """記述式回答を評価（コピペ検出・キーポイント確認）"""
+    client = get_openai_client()
+    
+    # コピペ率の簡易チェック（単語レベル）
+    import re
+    student_words = set(re.findall(r'\b\w+\b', student_answer.lower()))
+    text_words = set(re.findall(r'\b\w+\b', original_text.lower()))
+    if len(student_words) > 0:
+        overlap = len(student_words & text_words) / len(student_words)
+    else:
+        overlap = 0
+    
+    word_count = len(student_answer.split())
+    
+    prompt = f"""Evaluate this student's essay response for an EFL reading comprehension task.
+
+Question: {essay_question}
+Key points that should be included: {key_points}
+Student's answer: {student_answer}
+Word limit: {word_limit} words
+Student's word count: {word_count}
+
+Evaluate:
+1. Does the answer demonstrate understanding of the article? (not just copying)
+2. Are key points addressed?
+3. Is the language the student's own words?
+
+Output JSON:
+{{
+  "score": <0-100>,
+  "key_points_covered": [<true/false for each key point>],
+  "feedback_en": "<Constructive feedback in English, 2-3 sentences>",
+  "feedback_ja": "<日本語でのフィードバック>",
+  "is_copied": <true if answer appears to be directly copied from text>
+}}"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are an EFL writing evaluator. Respond in valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            max_tokens=500,
+            response_format={"type": "json_object"}
+        )
+        result = json.loads(response.choices[0].message.content)
+        result["success"] = True
+        result["word_count"] = word_count
+        result["copy_overlap"] = round(overlap * 100)
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
