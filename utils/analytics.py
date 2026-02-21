@@ -487,23 +487,61 @@ def show_teacher_analytics():
 
     st.markdown("---")
     st.markdown("#### ⚠️ 要注意学生")
-    alerts = [
-        {"name": "学生A", "issue": "過去2週間ログインなし", "severity": "高"},
-        {"name": "学生B", "issue": "スピーキングスコアが低下傾向", "severity": "中"},
-        {"name": "学生C", "issue": "課題未提出が2件", "severity": "中"},
-    ]
-    for alert in alerts:
-        if alert['severity'] == '高':
-            st.error(f"🚨 **{alert['name']}** - {alert['issue']}")
+    try:
+        from utils.database import get_supabase_client
+        from datetime import datetime, timedelta
+        supabase = get_supabase_client()
+        two_weeks_ago = (datetime.utcnow() - timedelta(weeks=2)).isoformat()
+
+        # 全学生取得
+        students_result = supabase.table('class_enrollments')            .select('student_id, profiles(display_name)')            .eq('class_id', course_id)            .execute()
+        students = students_result.data if students_result.data else []
+
+        alerts = []
+        for s in students:
+            sid = s.get('student_id')
+            name = s.get('profiles', {}).get('display_name', sid[:8] if sid else '不明')
+
+            # 2週間ログインなし
+            login_result = supabase.table('practice_logs')                .select('id')                .eq('student_id', sid)                .gte('created_at', two_weeks_ago)                .limit(1).execute()
+            if not login_result.data:
+                alerts.append({"name": name, "issue": "過去2週間活動なし", "severity": "高"})
+                continue
+
+            # 課題未提出
+            assign_result = supabase.table('assignment_submissions')                .select('id')                .eq('student_id', sid)                .execute()
+            submitted_ids = [r['id'] for r in (assign_result.data or [])]
+            all_assign = supabase.table('assignments')                .select('id')                .eq('course_id', course_id)                .execute()
+            total = len(all_assign.data or [])
+            missing = total - len(submitted_ids)
+            if missing >= 2:
+                alerts.append({"name": name, "issue": f"課題未提出が{missing}件", "severity": "中"})
+
+        if alerts:
+            for alert in alerts:
+                if alert['severity'] == '高':
+                    st.error(f"🚨 **{alert['name']}** - {alert['issue']}")
+                else:
+                    st.warning(f"⚠️ **{alert['name']}** - {alert['issue']}")
         else:
-            st.warning(f"⚠️ **{alert['name']}** - {alert['issue']}")
+            st.success("要注意学生はいません")
+    except Exception as e:
+        st.info(f"要注意学生データを取得できませんでした: {e}")
 
     st.markdown("---")
     st.markdown("#### 📊 モジュール別クラス平均")
-    import pandas as pd
-    class_data = pd.DataFrame({
-        'モジュール': ['Speaking', 'Writing', 'Reading', 'Vocabulary', 'Listening'],
-        'クラス平均': [72, 68, 75, 80, 70],
-        '前週比': ['+3', '-2', '+1', '+5', '+2']
-    })
-    st.dataframe(class_data, use_container_width=True, hide_index=True)
+    try:
+        import pandas as pd
+        from utils.database import get_supabase_client
+        supabase = get_supabase_client()
+        modules = ['speaking', 'writing', 'reading', 'vocabulary', 'listening']
+        rows = []
+        for mod in modules:
+            result = supabase.table('practice_logs')                .select('score')                .eq('course_id', course_id)                .eq('module', mod)                .not_.is_('score', 'null')                .execute()
+            scores = [r['score'] for r in (result.data or []) if r.get('score')]
+            avg = round(sum(scores)/len(scores)) if scores else None
+            rows.append({'モジュール': mod.capitalize(), 'クラス平均': avg if avg else '—'})
+        class_data = pd.DataFrame(rows)
+        st.dataframe(class_data, use_container_width=True, hide_index=True)
+    except Exception as e:
+        st.info(f"モジュール別データを取得できませんでした: {e}")
