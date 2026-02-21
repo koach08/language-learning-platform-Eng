@@ -1291,7 +1291,7 @@ def show_speech_practice(user):
                     pass
 
 
-def _evaluate_speech_real(speech_audio, topic=""):
+def _evaluate_speech_real(speech_audio, topic="", course_id=None, task_type="monologue", assignment_id=None):
     """スピーチ音声を実APIで評価（Azure Speech + GPT）
     
     Returns: (scores_dict, recognized_text, feedback_text)
@@ -1341,7 +1341,7 @@ def _evaluate_speech_real(speech_audio, topic=""):
             if recognized_text and len(recognized_text.split()) >= 5:
                 try:
                     from utils.gpt_eval import evaluate_language_use
-                    gpt_result = evaluate_language_use(recognized_text, context="speaking")
+                    gpt_result = evaluate_language_use(recognized_text, context="speaking", course_id=course_id, task_type=task_type, assignment_id=assignment_id)
                     
                     if gpt_result.get("success"):
                         gpt_scores = gpt_result.get("scores", {})

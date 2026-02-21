@@ -409,7 +409,9 @@ def show_assignment_submission():
                         text,
                         task_type=selected['type'],
                         level="B1",
-                        is_practice=False
+                        is_practice=False,
+                        course_id=course_id,
+                        assignment_id=selected.get('id')
                     )
                 
                 if result.get("success"):
@@ -551,7 +553,9 @@ def show_practice_mode():
                 with st.spinner("添削中... / Checking..."):
                     result = evaluate_writing(
                         text,
-                        task_type=practice_type.split("/")[0].strip().lower(),
+                        task_type=practice_type.split("/",
+                        course_id=course_id
+                    )[0].strip().lower(),
                         level="B1",
                         is_practice=True
                     )
