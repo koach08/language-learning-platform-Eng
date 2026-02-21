@@ -391,9 +391,10 @@ def show_reading_practice():
                         del st.session_state.reading_analysis
                     st.rerun()
             
-            # クイズ表示
+            # クイズ表示中はボタンエリアを非表示
             if 'reading_questions' in st.session_state and st.session_state.get('quiz_mode'):
                 show_comprehension_quiz(st.session_state.reading_questions)
+                st.stop()
             
             # 要約・語彙表示
             if 'reading_analysis' in st.session_state:
