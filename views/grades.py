@@ -35,10 +35,11 @@ def show():
         st.warning("クラスが選択されていません。教員ホームからクラスを選択してください。")
         return
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 成績一覧",
         "⚙️ 配分設定",
         "📈 統計・分析",
+        "📉 スコア推移",
         "📥 エクスポート / インポート"
     ])
 
@@ -49,6 +50,8 @@ def show():
     with tab3:
         show_grade_statistics(course_id)
     with tab4:
+        show_score_trends(course_id)
+    with tab5:
         show_export_options(course_id)
 
 
@@ -60,8 +63,17 @@ def _load_module_scores(course_id: str) -> list:
     if not course_id:
         return []
     try:
-        from utils.database import get_module_scores_for_course
-        return get_module_scores_for_course(course_id)
+        from utils.database import get_module_scores_for_course, get_extracurricular_score_for_course
+        students = get_module_scores_for_course(course_id)
+        # 授業外学習スコアをマージ
+        extra_map = get_extracurricular_score_for_course(course_id) or {}
+        for s in students:
+            uid = s.get('user_id', s.get('id', ''))
+            extra = extra_map.get(uid, {})
+            s['extracurricular_score'] = extra.get('score', 0.0)
+            s['extracurricular_points'] = extra.get('approved_points', 0)
+            s['extracurricular_count'] = extra.get('log_count', 0)
+        return students
     except Exception as e:
         st.error(f"モジュールスコアの取得に失敗しました: {e}")
         return []
@@ -83,7 +95,8 @@ def _load_weights(course_id: str) -> dict:
 def _default_weights() -> dict:
     return {
         'speaking': 20, 'writing': 20, 'vocabulary': 15,
-        'reading': 15, 'listening': 15, 'assignment': 15, 'attendance': 0,
+        'reading': 15, 'listening': 15, 'assignment': 15,
+        'extracurricular': 0, 'attendance': 0,
     }
 
 
@@ -95,24 +108,26 @@ def _calc_student_total(s: dict, weights: dict, attendance_map: dict) -> dict:
     def safe(val):
         return float(val) if val is not None else 0.0
 
-    speaking   = safe(s.get('speaking_avg'))
-    writing    = safe(s.get('writing_avg'))
-    vocabulary = safe(s.get('vocabulary_avg'))
-    reading    = safe(s.get('reading_avg'))
-    listening  = safe(s.get('listening_avg'))
-    assignment = safe(s.get('assignment_avg'))
+    speaking        = safe(s.get('speaking_avg'))
+    writing         = safe(s.get('writing_avg'))
+    vocabulary      = safe(s.get('vocabulary_avg'))
+    reading         = safe(s.get('reading_avg'))
+    listening       = safe(s.get('listening_avg'))
+    assignment      = safe(s.get('assignment_avg'))
+    extracurricular = safe(s.get('extracurricular_score'))
     att_raw = attendance_map.get(s.get('student_id', ''), None)
     attendance = float(att_raw) if att_raw is not None else 0.0
 
     w = weights
     total = (
-        speaking   * w.get('speaking', 0) / 100 +
-        writing    * w.get('writing', 0) / 100 +
-        vocabulary * w.get('vocabulary', 0) / 100 +
-        reading    * w.get('reading', 0) / 100 +
-        listening  * w.get('listening', 0) / 100 +
-        assignment * w.get('assignment', 0) / 100 +
-        attendance * w.get('attendance', 0) / 100
+        speaking        * w.get('speaking', 0) / 100 +
+        writing         * w.get('writing', 0) / 100 +
+        vocabulary      * w.get('vocabulary', 0) / 100 +
+        reading         * w.get('reading', 0) / 100 +
+        listening       * w.get('listening', 0) / 100 +
+        assignment      * w.get('assignment', 0) / 100 +
+        extracurricular * w.get('extracurricular', 0) / 100 +
+        attendance      * w.get('attendance', 0) / 100
     )
 
     return {
@@ -126,6 +141,9 @@ def _calc_student_total(s: dict, weights: dict, attendance_map: dict) -> dict:
         'reading': reading, 'reading_count': s.get('reading_count', 0),
         'listening': listening, 'listening_count': s.get('listening_count', 0),
         'assignment': assignment, 'assignment_count': s.get('assignment_count', 0),
+        'extracurricular': extracurricular,
+        'extracurricular_points': s.get('extracurricular_points', 0),
+        'extracurricular_count': s.get('extracurricular_count', 0),
         'attendance': attendance, 'attendance_input': att_raw is not None,
         'total': round(total, 1),
         'grade': _calc_grade(total),
@@ -196,7 +214,9 @@ def show_grade_list(course_id: str):
     st.markdown("---")
 
     w = weights
-    cols = st.columns([2, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+    show_extra = w.get('extracurricular', 0) > 0
+    col_widths = [2, 1, 1, 1, 1, 1, 1, 1] + ([1] if show_extra else []) + [1, 1]
+    cols = st.columns(col_widths)
     headers = [
         "名前", "学籍番号",
         f"Speaking\n({w.get('speaking',0)}%)",
@@ -205,8 +225,10 @@ def show_grade_list(course_id: str):
         f"Reading\n({w.get('reading',0)}%)",
         f"Listening\n({w.get('listening',0)}%)",
         f"課題\n({w.get('assignment',0)}%)",
-        "合計 / 評定", "操作"
     ]
+    if show_extra:
+        headers.append(f"授業外\n({w.get('extracurricular',0)}%)")
+    headers += ["合計 / 評定", "操作"]
     for col, header in zip(cols, headers):
         col.markdown(f"**{header}**")
     st.markdown("---")
@@ -217,7 +239,7 @@ def show_grade_list(course_id: str):
     }
 
     for g in grade_data:
-        cols = st.columns([2, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+        cols = st.columns(col_widths)
 
         def fmt(val, count=None):
             if val and val > 0:
@@ -244,9 +266,20 @@ def show_grade_list(course_id: str):
             st.markdown(fmt(g['listening'], g['listening_count']))
         with cols[7]:
             st.markdown(fmt(g['assignment'], g['assignment_count']))
-        with cols[8]:
+        col_idx = 8
+        if show_extra:
+            with cols[col_idx]:
+                pts = g.get('extracurricular_points', 0)
+                sc = g.get('extracurricular', 0)
+                if sc > 0:
+                    st.markdown(f"{sc:.0f}点")
+                    st.caption(f"{pts}pt")
+                else:
+                    st.markdown("－")
+            col_idx += 1
+        with cols[col_idx]:
             st.markdown(f"{grade_color.get(g['grade'], '')} **{g['grade']}** ({g['total']:.1f})")
-        with cols[9]:
+        with cols[col_idx + 1]:
             if st.button("詳細", key=f"grade_detail_{g['user_id']}"):
                 st.session_state['selected_student'] = g['_raw']
                 st.session_state['current_view'] = 'student_portfolio'
@@ -277,11 +310,15 @@ def show_grade_settings(course_id: str):
         ls  = st.slider("👂 Listening",  0, 100, current.get('listening', 15),  key="w_ls")
         as_ = st.slider("📝 課題提出",   0, 100, current.get('assignment', 15), key="w_as")
 
+    st.markdown("#### 📓 授業外学習（learning_logs）")
+    ex = st.slider("📓 授業外学習", 0, 50, current.get('extracurricular', 0), key="w_ex",
+                   help="承認済みの授業外学習ポイントを成績に反映。0%の場合は計算に含まれません。100ポイント=100点換算。")
+
     st.markdown("#### 📋 出席（CSVインポート）")
     at = st.slider("🗓️ 出席点", 0, 100, current.get('attendance', 0), key="w_at",
                    help="0%の場合は成績計算に含まれません")
 
-    total = sp + wr + vo + rd + ls + as_ + at
+    total = sp + wr + vo + rd + ls + as_ + ex + at
     if total == 100:
         st.success(f"✅ 合計: {total}%")
     else:
@@ -299,7 +336,8 @@ def show_grade_settings(course_id: str):
     if st.button("💾 設定を保存（DB）", type="primary", disabled=(total != 100)):
         new_weights = {
             'speaking': sp, 'writing': wr, 'vocabulary': vo,
-            'reading': rd, 'listening': ls, 'assignment': as_, 'attendance': at,
+            'reading': rd, 'listening': ls, 'assignment': as_,
+            'extracurricular': ex, 'attendance': at,
         }
         try:
             from utils.database import save_grade_weights
@@ -391,6 +429,331 @@ def show_grade_statistics(course_id: str):
                 st.metric(label, f"{avg:.1f}点", help=f"データあり: {len(vals)}名")
             else:
                 st.metric(label, "データなし")
+
+
+# ============================================================
+# Tab 4: スコア推移グラフ
+# ============================================================
+
+def show_score_trends(course_id: str):
+    """クラス全体・個人のスコア推移を時系列グラフで可視化"""
+    st.markdown("### 📉 スコア推移")
+
+    if not course_id:
+        st.warning("コースが選択されていません")
+        return
+
+    # ── 表示モード選択 ──────────────────────────────────────
+    mode = st.radio(
+        "表示モード",
+        ["クラス平均推移", "個人スコア比較", "モジュール別ヒートマップ"],
+        horizontal=True,
+        key="trend_mode"
+    )
+    st.markdown("---")
+
+    if mode == "クラス平均推移":
+        _show_class_avg_trend(course_id)
+    elif mode == "個人スコア比較":
+        _show_individual_trend(course_id)
+    else:
+        _show_module_heatmap(course_id)
+
+
+def _show_class_avg_trend(course_id: str):
+    """クラス全体の週次平均スコア推移"""
+    st.markdown("#### 📊 クラス平均スコア推移（週次）")
+    st.caption("各モジュールの週次平均スコアを折れ線グラフで表示します。")
+
+    try:
+        from utils.database import get_course_practice_logs_for_trend
+        logs = get_course_practice_logs_for_trend(course_id, days=90)
+    except Exception:
+        logs = None
+
+    # フォールバック: get_module_scores_for_courseから擬似推移を生成
+    if not logs:
+        st.info(
+            "週次データを取得するには `get_course_practice_logs_for_trend()` が必要です。"
+            "現在は直近スコア一覧を代替表示しています。"
+        )
+        _show_class_avg_fallback(course_id)
+        return
+
+    try:
+        import pandas as pd
+        df = pd.DataFrame(logs)
+        if df.empty:
+            st.info("推移データがまだありません")
+            return
+
+        df['practiced_at'] = pd.to_datetime(df['practiced_at'])
+        df['week'] = df['practiced_at'].dt.to_period('W').apply(lambda x: str(x.start_time)[:10])
+
+        MODULE_MAP = {
+            'speaking': '🎤 Speaking',
+            'speaking_pronunciation': '🎤 Speaking',
+            'speaking_read_aloud': '🎤 Speaking',
+            'writing_practice': '✍️ Writing',
+            'writing_submission': '✍️ Writing',
+            'vocabulary_quiz': '📚 Vocabulary',
+            'vocabulary_flashcard': '📚 Vocabulary',
+            'reading_practice': '📖 Reading',
+            'listening_practice': '👂 Listening',
+            'listening_dictation': '👂 Listening',
+        }
+        df['module_group'] = df['module_type'].map(MODULE_MAP)
+        df = df[df['module_group'].notna() & df['score'].notna() & (df['score'] > 0)]
+
+        weekly = df.groupby(['week', 'module_group'])['score'].mean().round(1).reset_index()
+        pivot = weekly.pivot(index='week', columns='module_group', values='score')
+
+        st.line_chart(pivot)
+
+        # 直近週と先週の比較サマリー
+        if len(pivot) >= 2:
+            st.markdown("**直近2週の比較:**")
+            last_week = pivot.iloc[-1]
+            prev_week = pivot.iloc[-2]
+            cols = st.columns(len(pivot.columns))
+            for i, col_name in enumerate(pivot.columns):
+                last_val = last_week.get(col_name)
+                prev_val = prev_week.get(col_name)
+                with cols[i]:
+                    if last_val is not None and prev_val is not None:
+                        delta = last_val - prev_val
+                        st.metric(col_name, f"{last_val:.1f}点", f"{delta:+.1f}")
+                    elif last_val is not None:
+                        st.metric(col_name, f"{last_val:.1f}点")
+
+    except Exception as e:
+        st.error(f"グラフの生成に失敗しました: {e}")
+
+
+def _show_class_avg_fallback(course_id: str):
+    """get_course_practice_logs_for_trendがない場合の代替表示"""
+    students_raw = _load_module_scores(course_id)
+    if not students_raw:
+        st.info("データがありません")
+        return
+
+    import statistics
+    modules = [
+        ("🎤 Speaking",   "speaking_avg"),
+        ("✍️ Writing",    "writing_avg"),
+        ("📚 Vocabulary", "vocabulary_avg"),
+        ("📖 Reading",    "reading_avg"),
+        ("👂 Listening",  "listening_avg"),
+    ]
+    cols = st.columns(len(modules))
+    for i, (label, key) in enumerate(modules):
+        vals = [float(s[key]) for s in students_raw if s.get(key) and float(s[key]) > 0]
+        with cols[i]:
+            if vals:
+                avg = statistics.mean(vals)
+                st.metric(label, f"{avg:.1f}点", help=f"{len(vals)}名のデータ")
+            else:
+                st.metric(label, "－")
+
+
+def _show_individual_trend(course_id: str):
+    """個人スコアの時系列推移"""
+    st.markdown("#### 👤 個人スコア推移")
+
+    students_raw = _load_module_scores(course_id)
+    if not students_raw:
+        st.info("学生データがありません")
+        return
+
+    # 学生選択
+    student_options = {
+        s.get('user_id', s.get('id', '')): f"{s.get('name', '不明')} ({s.get('student_id', '')})"
+        for s in students_raw
+    }
+    selected_uid = st.selectbox(
+        "学生を選択",
+        list(student_options.keys()),
+        format_func=lambda x: student_options.get(x, x),
+        key="trend_student_select"
+    )
+
+    module_filter = st.multiselect(
+        "表示するモジュール",
+        options=["Speaking", "Writing", "Vocabulary", "Reading", "Listening"],
+        default=["Speaking", "Writing"],
+        key="trend_module_filter"
+    )
+
+    days_option = st.select_slider(
+        "期間",
+        options=[30, 60, 90, 180],
+        value=90,
+        format_func=lambda x: f"直近{x}日",
+        key="trend_days"
+    )
+
+    if not selected_uid:
+        return
+
+    try:
+        from utils.database import get_student_practice_details
+        logs = get_student_practice_details(selected_uid, days=days_option) or []
+
+        if not logs:
+            st.info("この学生の練習データがまだありません")
+            return
+
+        import pandas as pd
+
+        MODULE_GROUP_MAP = {
+            'speaking': 'Speaking', 'speaking_pronunciation': 'Speaking',
+            'speaking_read_aloud': 'Speaking', 'speaking_chat': 'Speaking',
+            'writing_practice': 'Writing', 'writing_submission': 'Writing',
+            'vocabulary_quiz': 'Vocabulary', 'vocabulary_flashcard': 'Vocabulary',
+            'reading_practice': 'Reading',
+            'listening_practice': 'Listening', 'listening_dictation': 'Listening',
+        }
+
+        rows = []
+        for l in logs:
+            if not l.get('score') or float(l.get('score', 0)) <= 0:
+                continue
+            date = (l.get('practiced_at') or '')[:10]
+            group = MODULE_GROUP_MAP.get(l.get('module_type', ''))
+            if not date or not group:
+                continue
+            if group not in module_filter:
+                continue
+            rows.append({'日付': date, 'module': group, 'score': float(l['score'])})
+
+        if not rows:
+            st.info("選択したモジュールのスコアデータがありません")
+            return
+
+        df = pd.DataFrame(rows)
+        # 日付×モジュールで平均
+        pivot = df.groupby(['日付', 'module'])['score'].mean().round(1).reset_index()
+        pivot = pivot.pivot(index='日付', columns='module', values='score')
+
+        st.line_chart(pivot)
+
+        # 最新スコアとトレンド
+        st.markdown("**最新スコアとトレンド:**")
+        cols = st.columns(len(module_filter))
+        for i, mod in enumerate(module_filter):
+            mod_data = df[df['module'] == mod].sort_values('日付')
+            with cols[i]:
+                if len(mod_data) >= 2:
+                    half = max(1, len(mod_data) // 2)
+                    first_avg = mod_data.head(half)['score'].mean()
+                    last_avg = mod_data.tail(half)['score'].mean()
+                    delta = last_avg - first_avg
+                    st.metric(f"📊 {mod}", f"{last_avg:.1f}点", f"{delta:+.1f}")
+                elif len(mod_data) == 1:
+                    st.metric(f"📊 {mod}", f"{mod_data.iloc[0]['score']:.1f}点")
+                else:
+                    st.metric(f"📊 {mod}", "－")
+
+    except Exception as e:
+        st.error(f"個人データの取得に失敗: {e}")
+
+
+def _show_module_heatmap(course_id: str):
+    """学生×モジュールのスコアヒートマップ"""
+    st.markdown("#### 🗂️ クラス全体 モジュール別スコアマップ")
+    st.caption("各学生のモジュール別スコアを色で表示します。空欄は未練習。")
+
+    students_raw = _load_module_scores(course_id)
+    if not students_raw:
+        st.info("データがありません")
+        return
+
+    weights = _load_weights(course_id)
+    attendance_map = _load_attendance(course_id)
+    grade_data = [_calc_student_total(s, weights, attendance_map) for s in students_raw]
+
+    # ソートオプション
+    sort_key = st.selectbox(
+        "ソート",
+        ["学籍番号順", "合計点順（高→低）", "Speaking順", "Writing順"],
+        key="heatmap_sort"
+    )
+    if sort_key == "合計点順（高→低）":
+        grade_data.sort(key=lambda x: x['total'], reverse=True)
+    elif sort_key == "Speaking順":
+        grade_data.sort(key=lambda x: x['speaking'], reverse=True)
+    elif sort_key == "Writing順":
+        grade_data.sort(key=lambda x: x['writing'], reverse=True)
+
+    MODULES = [
+        ("Speaking",   "speaking"),
+        ("Writing",    "writing"),
+        ("Vocabulary", "vocabulary"),
+        ("Reading",    "reading"),
+        ("Listening",  "listening"),
+        ("課題",        "assignment"),
+    ]
+
+    def _score_color(val):
+        if not val or val <= 0:
+            return "#f3f4f6", "#9ca3af"  # bg, text
+        if val >= 80:
+            return "#bbf7d0", "#15803d"
+        elif val >= 70:
+            return "#fef08a", "#854d0e"
+        elif val >= 60:
+            return "#fed7aa", "#9a3412"
+        else:
+            return "#fecaca", "#991b1b"
+
+    # ヘッダー行
+    header_cols = st.columns([2] + [1] * len(MODULES) + [1])
+    header_cols[0].markdown("**氏名**")
+    for i, (label, _) in enumerate(MODULES):
+        header_cols[i + 1].markdown(f"**{label}**")
+    header_cols[-1].markdown("**合計**")
+
+    st.markdown("---")
+
+    for g in grade_data:
+        row_cols = st.columns([2] + [1] * len(MODULES) + [1])
+        with row_cols[0]:
+            st.markdown(f"**{g['name']}**")
+            st.caption(g['student_id'])
+
+        for i, (label, key) in enumerate(MODULES):
+            val = g.get(key, 0)
+            bg, fg = _score_color(val)
+            with row_cols[i + 1]:
+                if val and val > 0:
+                    st.markdown(
+                        f"<div style='background:{bg};color:{fg};text-align:center;"
+                        f"border-radius:4px;padding:4px;font-weight:bold;font-size:0.9em;'>"
+                        f"{val:.0f}</div>",
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.markdown(
+                        "<div style='background:#f3f4f6;color:#d1d5db;text-align:center;"
+                        "border-radius:4px;padding:4px;font-size:0.9em;'>－</div>",
+                        unsafe_allow_html=True
+                    )
+
+        with row_cols[-1]:
+            total = g.get('total', 0)
+            bg_t, fg_t = _score_color(total)
+            st.markdown(
+                f"<div style='background:{bg_t};color:{fg_t};text-align:center;"
+                f"border-radius:4px;padding:4px;font-weight:bold;'>"
+                f"{total:.0f}</div>",
+                unsafe_allow_html=True
+            )
+
+    st.markdown("---")
+    st.markdown("""
+    **凡例:** 
+    🟢 80点以上　🟡 70〜79点　🟠 60〜69点　🔴 59点以下　⬜ データなし
+    """)
 
 
 # ============================================================

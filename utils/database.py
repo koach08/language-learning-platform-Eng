@@ -1782,6 +1782,46 @@ def get_learning_logs_for_course(course_id: str) -> List[Dict]:
         return []
 
 
+def get_extracurricular_score_for_course(course_id: str) -> Dict[str, Dict]:
+    """コース全学生の授業外学習スコアを集計（grades.py用）
+
+    Returns:
+        {student_id: {
+            'approved_points': int,
+            'total_minutes': int,
+            'log_count': int,
+            'score': float,  # 0-100換算（100pt=100点上限）
+        }}
+    """
+    supabase = get_supabase_client()
+    try:
+        enrollments = supabase.table('enrollments')            .select('student_id')            .eq('course_id', course_id)            .execute()
+        if not enrollments.data:
+            return {}
+
+        student_ids = [e['student_id'] for e in enrollments.data]
+
+        result = supabase.table('learning_logs')            .select('student_id, points, duration_minutes, status')            .in_('student_id', student_ids)            .eq('status', 'approved')            .execute()
+
+        score_map: Dict[str, Dict] = {}
+        for log in (result.data or []):
+            sid = log.get('student_id', '')
+            if not sid:
+                continue
+            if sid not in score_map:
+                score_map[sid] = {'approved_points': 0, 'total_minutes': 0, 'log_count': 0}
+            score_map[sid]['approved_points'] += int(log.get('points') or 0)
+            score_map[sid]['total_minutes'] += int(log.get('duration_minutes') or 0)
+            score_map[sid]['log_count'] += 1
+
+        for sid, data in score_map.items():
+            data['score'] = min(100.0, float(data['approved_points']))
+
+        return score_map
+    except Exception:
+        return {}
+
+
 # ============================================================
 # Practice Logs Detail (練習ログ詳細取得)
 # ============================================================
