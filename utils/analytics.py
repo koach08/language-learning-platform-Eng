@@ -471,19 +471,77 @@ def show_cefr_progress(data):
             st.line_chart(df.set_index('日付')['平均スコア'])
 
 
-def show_teacher_analytics():
-    """教員向けクラス分析（デモ）"""
+def show_teacher_analytics(course_id: str = None):
+    """教員向けクラス分析（DB実データ）"""
     st.markdown("### 📊 クラス学習分析")
 
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("平均学習時間", "4.2h/週")
-    with col2:
-        st.metric("平均スコア", "71.5")
-    with col3:
-        st.metric("課題提出率", "82%")
-    with col4:
-        st.metric("アクティブ率", "90%")
+    # course_idが渡されなかった場合はsession_stateから取得
+    if not course_id:
+        selected_class = st.session_state.get('selected_class', '')
+        classes = st.session_state.get('teacher_classes', {})
+        if selected_class and selected_class in classes:
+            current_class = classes[selected_class]
+            course_id = current_class.get('db_id') or current_class.get('course_id')
+
+    if not course_id:
+        st.warning("コースが選択されていません")
+        return
+
+    # ── DB実データで上部メトリクスを計算 ──────────────────────
+    try:
+        from utils.database import get_supabase_client
+        from datetime import datetime, timedelta
+        import statistics as stats_lib
+        supabase = get_supabase_client()
+        one_week_ago = (datetime.utcnow() - timedelta(weeks=1)).isoformat()
+
+        enroll_res = supabase.table('enrollments')            .select('student_id')            .eq('course_id', course_id)            .execute()
+        student_ids = [e['student_id'] for e in (enroll_res.data or [])]
+        total_students = len(student_ids)
+
+        if total_students == 0:
+            st.info("受講学生がいません")
+            return
+
+        # 平均スコア
+        scores_res = supabase.table('practice_logs')            .select('score')            .eq('course_id', course_id)            .not_.is_('score', 'null')            .execute()
+        all_scores = [float(r['score']) for r in (scores_res.data or []) if r.get('score') is not None]
+        avg_score = round(stats_lib.mean(all_scores), 1) if all_scores else None
+
+        # アクティブ率（過去1週間）
+        active_set = set()
+        for sid in student_ids:
+            act_res = supabase.table('practice_logs')                .select('id')                .eq('student_id', sid)                .eq('course_id', course_id)                .gte('created_at', one_week_ago)                .limit(1).execute()
+            if act_res.data:
+                active_set.add(sid)
+        active_rate = round(len(active_set) / total_students * 100) if total_students > 0 else 0
+
+        # 課題提出率
+        all_assign_res = supabase.table('assignments')            .select('id')            .eq('course_id', course_id)            .execute()
+        total_assignments = len(all_assign_res.data or [])
+        if total_assignments > 0:
+            sub_res = supabase.table('submissions')                .select('student_id')                .eq('course_id', course_id)                .execute()
+            submitted_count = len(sub_res.data or [])
+            submission_rate = min(round(submitted_count / (total_students * total_assignments) * 100), 100)
+        else:
+            submission_rate = None
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("受講学生数", f"{total_students}名")
+        with col2:
+            st.metric("平均スコア", f"{avg_score}" if avg_score is not None else "データなし")
+        with col3:
+            st.metric("課題提出率", f"{submission_rate}%" if submission_rate is not None else "データなし")
+        with col4:
+            st.metric("週間アクティブ率", f"{active_rate}%")
+
+    except Exception as e:
+        st.error(f"メトリクス取得エラー: {e}")
+        col1, col2, col3, col4 = st.columns(4)
+        for col, label in zip([col1, col2, col3, col4], ["受講学生数", "平均スコア", "課題提出率", "週間アクティブ率"]):
+            with col:
+                st.metric(label, "—")
 
     st.markdown("---")
     st.markdown("#### ⚠️ 要注意学生")
@@ -493,27 +551,27 @@ def show_teacher_analytics():
         supabase = get_supabase_client()
         two_weeks_ago = (datetime.utcnow() - timedelta(weeks=2)).isoformat()
 
-        # 全学生取得
-        students_result = supabase.table('class_enrollments')            .select('student_id, profiles(display_name)')            .eq('class_id', course_id)            .execute()
+        students_result = supabase.table('enrollments')            .select('student_id, users(id, name, email)')            .eq('course_id', course_id)            .execute()
         students = students_result.data if students_result.data else []
 
         alerts = []
         for s in students:
             sid = s.get('student_id')
-            name = s.get('profiles', {}).get('display_name', sid[:8] if sid else '不明')
+            user_info = s.get('users') or {}
+            name = user_info.get('name') or (sid[:8] if sid else '不明')
 
-            # 2週間ログインなし
-            login_result = supabase.table('practice_logs')                .select('id')                .eq('student_id', sid)                .gte('created_at', two_weeks_ago)                .limit(1).execute()
+            # 2週間活動なし
+            login_result = supabase.table('practice_logs')                .select('id')                .eq('student_id', sid)                .eq('course_id', course_id)                .gte('created_at', two_weeks_ago)                .limit(1).execute()
             if not login_result.data:
                 alerts.append({"name": name, "issue": "過去2週間活動なし", "severity": "高"})
                 continue
 
-            # 課題未提出
-            assign_result = supabase.table('assignment_submissions')                .select('id')                .eq('student_id', sid)                .execute()
-            submitted_ids = [r['id'] for r in (assign_result.data or [])]
+            # 課題未提出（submissionsテーブル）
+            assign_result = supabase.table('submissions')                .select('id')                .eq('student_id', sid)                .eq('course_id', course_id)                .execute()
+            submitted_count = len(assign_result.data or [])
             all_assign = supabase.table('assignments')                .select('id')                .eq('course_id', course_id)                .execute()
             total = len(all_assign.data or [])
-            missing = total - len(submitted_ids)
+            missing = total - submitted_count
             if missing >= 2:
                 alerts.append({"name": name, "issue": f"課題未提出が{missing}件", "severity": "中"})
 
@@ -526,7 +584,7 @@ def show_teacher_analytics():
         else:
             st.success("要注意学生はいません")
     except Exception as e:
-        st.info(f"要注意学生データを取得できませんでした: {e}")
+        st.error(f"要注意学生データを取得できませんでした: {e}")
 
     st.markdown("---")
     st.markdown("#### 📊 モジュール別クラス平均")
@@ -534,14 +592,49 @@ def show_teacher_analytics():
         import pandas as pd
         from utils.database import get_supabase_client
         supabase = get_supabase_client()
-        modules = ['speaking', 'writing', 'reading', 'vocabulary', 'listening']
+
+        MODULE_CATEGORY = {
+            'speaking': 'speaking',
+            'speaking_chat': 'speaking',
+            'speaking_pronunciation': 'speaking',
+            'writing_practice': 'writing',
+            'writing_submission': 'writing',
+            'writing_translation': 'writing',
+            'vocabulary_quiz': 'vocabulary',
+            'vocabulary_flashcard': 'vocabulary',
+            'reading_practice': 'reading',
+            'listening_practice': 'listening',
+        }
+
+        # 1クエリでコース全体取得
+        result = supabase.table('practice_logs')            .select('module_type, score')            .eq('course_id', course_id)            .not_.is_('score', 'null')            .execute()
+
+        cat_scores: dict = {
+            'speaking': [], 'writing': [], 'vocabulary': [], 'reading': [], 'listening': []
+        }
+        for row in (result.data or []):
+            cat = MODULE_CATEGORY.get(row.get('module_type', ''))
+            sc = row.get('score')
+            if cat and sc is not None:
+                cat_scores[cat].append(float(sc))
+
+        module_labels = {
+            'speaking': '🎤 Speaking',
+            'writing': '✍️ Writing',
+            'vocabulary': '📚 Vocabulary',
+            'reading': '📖 Reading',
+            'listening': '👂 Listening',
+        }
         rows = []
-        for mod in modules:
-            result = supabase.table('practice_logs')                .select('score')                .eq('course_id', course_id)                .eq('module', mod)                .not_.is_('score', 'null')                .execute()
-            scores = [r['score'] for r in (result.data or []) if r.get('score')]
-            avg = round(sum(scores)/len(scores)) if scores else None
-            rows.append({'モジュール': mod.capitalize(), 'クラス平均': avg if avg else '—'})
+        for key, label in module_labels.items():
+            scores = cat_scores[key]
+            avg = round(sum(scores) / len(scores), 1) if scores else None
+            rows.append({
+                'モジュール': label,
+                'クラス平均': f"{avg:.1f}" if avg is not None else '—',
+                'データ数': len(scores)
+            })
         class_data = pd.DataFrame(rows)
         st.dataframe(class_data, use_container_width=True, hide_index=True)
     except Exception as e:
-        st.info(f"モジュール別データを取得できませんでした: {e}")
+        st.error(f"モジュール別データを取得できませんでした: {e}")

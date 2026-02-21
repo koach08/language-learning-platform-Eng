@@ -628,15 +628,22 @@ def _save_reading_quiz_to_db(questions, score_pct):
         
         student_id = user['id']
         
-        # コースIDを取得
+        # コースIDを取得（grades.pyと同じパターンで取得）
         course_id = None
-        registered = st.session_state.get('student_registered_classes', [])
-        if registered:
-            first = registered[0]
-            if isinstance(first, dict):
-                course_id = first.get('class_key') or first.get('id') or first.get('course_id')
-            else:
-                course_id = None
+        # まず selected_class / teacher_classes パターン（学生版）
+        selected_class = st.session_state.get('selected_class', '')
+        classes = st.session_state.get('student_classes', {})
+        if selected_class and selected_class in classes:
+            c = classes[selected_class]
+            course_id = c.get('db_id') or c.get('course_id')
+        # フォールバック: student_registered_classes
+        if not course_id:
+            registered = st.session_state.get('student_registered_classes', [])
+            if registered:
+                first = registered[0]
+                if isinstance(first, dict):
+                    # db_id / course_id を優先（class_keyはUUIDではない可能性あり）
+                    course_id = first.get('db_id') or first.get('course_id') or first.get('id')
         
         # 記事情報を取得
         # current_articleはキー文字列なので、materialsから実際のデータを取得

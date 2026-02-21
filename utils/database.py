@@ -2170,9 +2170,9 @@ def get_student_reading_level(student_id: str, course_id: str = None) -> str:
         else:
             return current_level
             
-    except Exception:
+    except Exception as e:
+        print(f"[database] get_student_reading_level error: {e}")
         return DEFAULT_LEVEL
-
 
 
 def get_extracurricular_score_for_course(course_id: str) -> dict:
