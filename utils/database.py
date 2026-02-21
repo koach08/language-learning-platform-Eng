@@ -2172,3 +2172,24 @@ def get_student_reading_level(student_id: str, course_id: str = None) -> str:
             
     except Exception:
         return DEFAULT_LEVEL
+
+
+def get_extracurricular_score_for_course(course_id: str, student_id: str) -> dict:
+    """授業外学習スコアを取得"""
+    try:
+        supabase = get_supabase_client()
+        result = supabase.table('practice_logs')\
+            .select('score, module, created_at')\
+            .eq('course_id', course_id)\
+            .eq('student_id', student_id)\
+            .execute()
+        logs = result.data if result.data else []
+        if not logs:
+            return {"total_score": 0, "activity_count": 0}
+        scores = [l['score'] for l in logs if l.get('score') is not None]
+        return {
+            "total_score": round(sum(scores) / len(scores)) if scores else 0,
+            "activity_count": len(logs)
+        }
+    except Exception:
+        return {"total_score": 0, "activity_count": 0}
