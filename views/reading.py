@@ -1,8 +1,11 @@
 import streamlit as st
 from utils.auth import get_current_user, require_auth
+from utils.database import get_student_reading_level
 from utils.reading import (
     generate_comprehension_questions,
     generate_exam_questions,
+    generate_level_based_questions,
+    evaluate_essay_answer,
     generate_summary_and_vocabulary,
     generate_article_from_prompt,
     calculate_wpm,
@@ -354,12 +357,18 @@ def show_reading_practice():
                 # クイズモード選択
                 quiz_mode_choice = st.selectbox(
                     "📝 クイズモード",
-                    ["通常 (True/False + 4択)", "TOEFL iBT対策", "TOEIC対策", "英検対策"],
+                    ["レベル別 (推奨)", "通常 (True/False + 4択)", "TOEFL iBT対策", "TOEIC対策", "英検対策"],
                     key="quiz_mode_select"
                 )
                 if st.button("📝 理解度クイズ / Comprehension Quiz", type="primary"):
                     with st.spinner("問題を生成中... (初回は少し時間がかかります)"):
-                        if quiz_mode_choice == "通常 (True/False + 4択)":
+                        if quiz_mode_choice == "レベル別 (推奨)":
+                            questions = generate_level_based_questions(
+                                article['text'],
+                                article['title'],
+                                level=article['level']
+                            )
+                        elif quiz_mode_choice == "通常 (True/False + 4択)":
                             questions = generate_comprehension_questions(
                                 article['text'],
                                 article['title'],
@@ -384,6 +393,9 @@ def show_reading_practice():
                         st.session_state.quiz_answers = {}
                         st.session_state.quiz_submitted = False
                         st.session_state.quiz_saved = False
+                        st.session_state.quiz_article_text = article['text']
+                        st.session_state.quiz_essay_submitted = False
+                        st.session_state.quiz_essay_result = None
                         st.rerun()
                     else:
                         st.error(f"問題生成に失敗しました: {questions.get('error', '')}")
@@ -538,11 +550,69 @@ def show_comprehension_quiz(data):
             _save_reading_quiz_to_db(questions, score_pct)
             st.session_state.quiz_saved = True
 
+        # 記述式問題（B2以上）
+        essay_q = data.get('essay_question')
+        if data.get('has_essay') and essay_q:
+            st.markdown("---")
+            st.markdown("### ✍️ 記述式問題 / Essay Question")
+            st.markdown(f"**{essay_q.get('question', '')}**")
+            st.caption(essay_q.get('question_ja', ''))
+            st.caption(f"目安: {essay_q.get('word_limit', 60)} words以内 / 自分の言葉で書いてください")
+
+            essay_answer = st.text_area(
+                "Your answer:",
+                height=120,
+                key="essay_answer_input",
+                placeholder="Write your answer here in English..."
+            )
+
+            if not st.session_state.get('quiz_essay_submitted'):
+                if st.button("✍️ 記述式を採点 / Submit Essay", type="secondary"):
+                    if len(essay_answer.strip().split()) < 5:
+                        st.warning("5語以上書いてください")
+                    else:
+                        with st.spinner("採点中..."):
+                            from utils.reading import evaluate_essay_answer
+                            essay_result = evaluate_essay_answer(
+                                essay_answer,
+                                essay_q.get('question', ''),
+                                essay_q.get('key_points', []),
+                                st.session_state.get('quiz_article_text', ''),
+                                essay_q.get('word_limit', 60)
+                            )
+                        st.session_state.quiz_essay_result = essay_result
+                        st.session_state.quiz_essay_submitted = True
+                        st.rerun()
+            else:
+                essay_result = st.session_state.get('quiz_essay_result', {})
+                if essay_result.get('is_copied'):
+                    st.error("⚠️ テキストのコピーが検出されました。自分の言葉で書き直してください。")
+                    if st.button("🔄 書き直す / Rewrite"):
+                        st.session_state.quiz_essay_submitted = False
+                        st.rerun()
+                else:
+                    score = essay_result.get('score', 0)
+                    wc = essay_result.get('word_count', 0)
+                    st.metric("Essay Score", f"{score}/100", f"{wc} words")
+                    st.info(essay_result.get('feedback_en', ''))
+                    st.caption(essay_result.get('feedback_ja', ''))
+                    with st.expander("📋 Key points / 採点基準"):
+                        for i, (kp, covered) in enumerate(zip(
+                            essay_q.get('key_points', []),
+                            essay_result.get('key_points_covered', [])
+                        )):
+                            icon = "✅" if covered else "❌"
+                            st.markdown(f"{icon} {kp}")
+                    with st.expander("📝 模範解答 / Sample answer"):
+                        st.markdown(essay_q.get('sample_answer', ''))
+
         if st.button("🔄 もう一度 / Try Again"):
             st.session_state.quiz_submitted = False
             st.session_state.quiz_answers = {}
             st.session_state.quiz_mode = False
             st.session_state.quiz_saved = False
+            st.session_state.quiz_essay_submitted = False
+            st.session_state.quiz_essay_result = None
             st.rerun()
 
 
