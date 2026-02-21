@@ -34,11 +34,14 @@ def show_portfolio_teacher_view(student):
     st.caption(f"学籍番号: {student.get('student_id', 'N/A')} | 最終活動: {days_text}")
     st.markdown("---")
 
-    tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab_summary, tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "🔍 総合サマリー",
         "👤 プロフィール", "📊 サマリー", "📝 学習履歴",
         "💬 提出物・フィードバック", "📈 成長記録", "📓 授業外学習", "📓 教員メモ"
     ])
     sid = student.get('user_id', student.get('id', ''))
+    with tab_summary:
+        show_teacher_summary(student, sid)
     with tab0:
         show_student_profile_readonly(student, sid)
     with tab1:
@@ -190,6 +193,363 @@ def _get_all_stats(student_id: str, days: int = 7):
 
     avg = round(sum(all_scores) / len(all_scores), 1) if all_scores else 0
     return stats, total_count, round(total_sec / 60), avg
+
+
+def show_teacher_summary(student, student_id):
+    """教員用：学生総合サマリー（一目でわかるページ）"""
+    st.markdown("### 🔍 学生総合サマリー")
+
+    # ============================================================
+    # セクション1: 総合スコア（モジュール別バーゲージ）
+    # ============================================================
+    st.markdown("#### 📊 モジュール別スコア")
+
+    course_id = None
+    try:
+        class_key = student.get('class_key') or st.session_state.get('selected_class', '')
+        classes = st.session_state.get('teacher_classes', {})
+        if class_key and class_key in classes:
+            course_id = classes[class_key].get('db_id') or classes[class_key].get('course_id')
+    except Exception:
+        pass
+
+    module_scores = {}
+    if course_id:
+        try:
+            from utils.database import get_module_scores_for_course
+            all_scores = get_module_scores_for_course(course_id)
+            for s in (all_scores or []):
+                uid = s.get('user_id') or s.get('id', '')
+                if uid == student_id:
+                    module_scores = s
+                    break
+        except Exception:
+            pass
+
+    MODULE_SCORE_DEFS = [
+        ("🎤 Speaking",   "speaking_avg",   "speaking_count"),
+        ("✍️ Writing",    "writing_avg",    "writing_count"),
+        ("📚 Vocabulary", "vocabulary_avg", "vocabulary_count"),
+        ("📖 Reading",    "reading_avg",    "reading_count"),
+        ("👂 Listening",  "listening_avg",  "listening_count"),
+    ]
+
+    cols = st.columns(len(MODULE_SCORE_DEFS))
+    for i, (label, avg_key, count_key) in enumerate(MODULE_SCORE_DEFS):
+        avg = module_scores.get(avg_key)
+        count = module_scores.get(count_key, 0)
+        with cols[i]:
+            if avg and float(avg) > 0:
+                val = float(avg)
+                color = "#22c55e" if val >= 80 else "#f59e0b" if val >= 60 else "#ef4444"
+                st.markdown(f"""
+                <div style='text-align:center;padding:8px;border-radius:8px;
+                            border:1px solid #e5e7eb;'>
+                    <div style='font-size:0.8em;color:#6b7280;'>{label}</div>
+                    <div style='font-size:1.8em;font-weight:bold;color:{color};'>{val:.0f}</div>
+                    <div style='font-size:0.75em;color:#9ca3af;'>{count}回</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div style='text-align:center;padding:8px;border-radius:8px;
+                            border:1px solid #e5e7eb;background:#f9fafb;'>
+                    <div style='font-size:0.8em;color:#6b7280;'>{label}</div>
+                    <div style='font-size:1.8em;font-weight:bold;color:#d1d5db;'>－</div>
+                    <div style='font-size:0.75em;color:#d1d5db;'>データなし</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ============================================================
+    # セクション2: 直近30日 練習頻度カレンダーヒートマップ
+    # ============================================================
+    st.markdown("#### 📅 直近30日の練習状況")
+
+    try:
+        from utils.database import get_student_practice_details
+        logs_30 = get_student_practice_details(student_id, days=30) or []
+
+        # 日付別カウント集計
+        from collections import defaultdict
+        date_counts = defaultdict(int)
+        for log in logs_30:
+            dt = (log.get('practiced_at') or '')[:10]
+            if dt:
+                date_counts[dt] += 1
+
+        # 今日から30日分の日付リスト生成
+        today = datetime.now().date()
+        dates = [(today - timedelta(days=i)) for i in range(29, -1, -1)]
+
+        # 5行×6列のグリッド表示
+        ROWS = 5
+        COLS = 6
+        grid_dates = dates[:ROWS * COLS]
+
+        max_count = max(date_counts.values()) if date_counts else 1
+
+        def _heat_color(count):
+            if count == 0:
+                return "#f3f4f6"
+            ratio = min(count / max(max_count, 3), 1.0)
+            if ratio < 0.33:
+                return "#bbf7d0"
+            elif ratio < 0.66:
+                return "#4ade80"
+            else:
+                return "#16a34a"
+
+        # グリッドHTML生成
+        html_cells = []
+        for row in range(ROWS):
+            for col in range(COLS):
+                idx = row * COLS + col
+                if idx >= len(grid_dates):
+                    html_cells.append("<div style='width:36px;height:36px;'></div>")
+                    continue
+                d = grid_dates[idx]
+                d_str = d.strftime('%Y-%m-%d')
+                count = date_counts.get(d_str, 0)
+                color = _heat_color(count)
+                day_label = d.strftime('%-m/%-d') if hasattr(d, 'strftime') else d_str[-5:]
+                tooltip = f"{d_str}: {count}回"
+                html_cells.append(
+                    f"<div title='{tooltip}' style='"
+                    f"width:36px;height:36px;border-radius:4px;"
+                    f"background:{color};display:flex;flex-direction:column;"
+                    f"align-items:center;justify-content:center;font-size:9px;color:#374151;'>"
+                    f"<span>{day_label}</span>"
+                    f"{'<span style=\"font-weight:bold\">' + str(count) + '</span>' if count > 0 else ''}"
+                    f"</div>"
+                )
+
+        grid_html = f"""
+        <div style='display:grid;grid-template-columns:repeat({COLS},40px);
+                    gap:4px;margin-bottom:8px;'>
+            {''.join(html_cells)}
+        </div>
+        <div style='display:flex;align-items:center;gap:6px;font-size:12px;color:#6b7280;'>
+            <span>少ない</span>
+            <div style='width:14px;height:14px;border-radius:2px;background:#f3f4f6;border:1px solid #e5e7eb;'></div>
+            <div style='width:14px;height:14px;border-radius:2px;background:#bbf7d0;'></div>
+            <div style='width:14px;height:14px;border-radius:2px;background:#4ade80;'></div>
+            <div style='width:14px;height:14px;border-radius:2px;background:#16a34a;'></div>
+            <span>多い</span>
+        </div>
+        """
+        st.markdown(grid_html, unsafe_allow_html=True)
+
+        total_days_active = len([d for d in dates if d.strftime('%Y-%m-%d') in date_counts])
+        total_sessions = sum(date_counts[d.strftime('%Y-%m-%d')] for d in dates)
+        st.caption(f"練習実施日: {total_days_active}日 / 30日 ｜ 合計セッション数: {total_sessions}回")
+
+    except Exception as e:
+        st.warning(f"練習データの取得に失敗: {e}")
+
+    st.markdown("---")
+
+    # ============================================================
+    # セクション3: スコア変化トレンド（↑↓）
+    # ============================================================
+    st.markdown("#### 📈 スコアトレンド（直近90日）")
+
+    try:
+        from utils.database import get_student_practice_details
+        logs_90 = get_student_practice_details(student_id, days=90) or []
+        scored = [l for l in logs_90 if l.get('score') and float(l['score']) > 0]
+
+        if scored:
+            import pandas as pd
+            df = pd.DataFrame([{
+                '日付': (l.get('practiced_at') or '')[:10],
+                'module': l.get('module_type', ''),
+                'score': float(l.get('score', 0)),
+            } for l in scored if (l.get('practiced_at') or '')[:10]])
+            df = df[df['日付'] != '']
+
+            TREND_MODULES = {
+                'speaking': '🎤 Speaking',
+                'writing_practice': '✍️ Writing',
+                'vocabulary_quiz': '📚 Vocab',
+                'reading_practice': '📖 Reading',
+                'listening_practice': '👂 Listening',
+            }
+
+            trend_cols = st.columns(len(TREND_MODULES))
+            for i, (mod_key, mod_label) in enumerate(TREND_MODULES.items()):
+                mod_df = df[df['module'] == mod_key].sort_values('日付')
+                with trend_cols[i]:
+                    if len(mod_df) >= 2:
+                        half = max(1, len(mod_df) // 2)
+                        first_avg = mod_df.head(half)['score'].mean()
+                        last_avg = mod_df.tail(half)['score'].mean()
+                        delta = last_avg - first_avg
+                        arrow = "↑" if delta > 1 else "↓" if delta < -1 else "→"
+                        color = "#22c55e" if delta > 1 else "#ef4444" if delta < -1 else "#6b7280"
+                        st.markdown(f"""
+                        <div style='text-align:center;padding:6px;border-radius:6px;border:1px solid #e5e7eb;'>
+                            <div style='font-size:0.75em;color:#6b7280;'>{mod_label}</div>
+                            <div style='font-size:1.4em;font-weight:bold;color:{color};'>{arrow}</div>
+                            <div style='font-size:0.8em;'>{last_avg:.0f}点</div>
+                            <div style='font-size:0.7em;color:{color};'>{delta:+.1f}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    elif len(mod_df) == 1:
+                        val = mod_df.iloc[0]['score']
+                        st.markdown(f"""
+                        <div style='text-align:center;padding:6px;border-radius:6px;border:1px solid #e5e7eb;'>
+                            <div style='font-size:0.75em;color:#6b7280;'>{mod_label}</div>
+                            <div style='font-size:1.4em;font-weight:bold;color:#6b7280;'>→</div>
+                            <div style='font-size:0.8em;'>{val:.0f}点</div>
+                            <div style='font-size:0.7em;color:#9ca3af;'>1回のみ</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"""
+                        <div style='text-align:center;padding:6px;border-radius:6px;border:1px solid #e5e7eb;background:#f9fafb;'>
+                            <div style='font-size:0.75em;color:#9ca3af;'>{mod_label}</div>
+                            <div style='font-size:1.4em;color:#d1d5db;'>－</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+        else:
+            st.info("スコアデータがまだありません")
+
+    except Exception as e:
+        st.warning(f"トレンドデータの取得に失敗: {e}")
+
+    st.markdown("---")
+
+    # ============================================================
+    # セクション4: 未提出課題リスト
+    # ============================================================
+    st.markdown("#### 📋 課題提出状況")
+
+    try:
+        from utils.database import get_assignment_submission_status_for_student
+        unsubmitted = get_assignment_submission_status_for_student(student_id, course_id)
+        if unsubmitted is None:
+            raise Exception("関数未実装")
+    except Exception:
+        # get_assignment_submission_status_for_studentがない場合のフォールバック
+        unsubmitted = None
+        if course_id:
+            try:
+                from utils.database import get_course_assignments, get_student_submissions
+                all_assignments = get_course_assignments(course_id, published_only=True) or []
+                submissions = get_student_submissions(student_id) or []
+                submitted_ids = {s.get('assignment_id') for s in submissions if s.get('assignment_id')}
+
+                unsubmitted = []
+                submitted = []
+                today_str = datetime.now().strftime('%Y-%m-%d')
+
+                for a in all_assignments:
+                    aid = a.get('id', '')
+                    title = a.get('title', '無題')
+                    due = (a.get('due_date') or '')[:10]
+                    overdue = due and due < today_str
+
+                    if aid in submitted_ids:
+                        submitted.append({'title': title, 'due': due})
+                    else:
+                        unsubmitted.append({'title': title, 'due': due, 'overdue': overdue})
+            except Exception as e2:
+                st.warning(f"課題データの取得に失敗: {e2}")
+                unsubmitted = None
+
+    if unsubmitted is not None:
+        total_a = len(unsubmitted) + len(submitted) if 'submitted' in dir() else len(unsubmitted)
+        submitted_list = submitted if 'submitted' in dir() else []
+        submit_count = len(submitted_list)
+        unsub_count = len(unsubmitted)
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("課題総数", f"{total_a}件")
+        with col2:
+            rate = submit_count / total_a * 100 if total_a > 0 else 0
+            st.metric("提出済み", f"{submit_count}件 ({rate:.0f}%)")
+        with col3:
+            overdue_count = len([u for u in unsubmitted if u.get('overdue')])
+            label = f"未提出 (期限切れ {overdue_count}件)" if overdue_count > 0 else "未提出"
+            st.metric(label, f"{unsub_count}件")
+
+        if unsubmitted:
+            st.markdown("**⚠️ 未提出課題:**")
+            for u in unsubmitted:
+                due_str = u['due'] if u['due'] else "期限なし"
+                icon = "🔴" if u.get('overdue') else "🟡"
+                st.markdown(f"- {icon} **{u['title']}** （締切: {due_str}）")
+        else:
+            st.success("✅ すべての課題を提出済みです")
+    else:
+        st.info("課題データを取得できませんでした")
+
+    st.markdown("---")
+
+    # ============================================================
+    # セクション5: 教員メモ（クイックアクセス）
+    # ============================================================
+    st.markdown("#### 📓 教員メモ（クイックアクセス）")
+
+    teacher = get_current_user()
+    teacher_id = teacher.get('id', '')
+
+    existing_note = None
+    try:
+        from utils.database import get_teacher_note
+        existing_note = get_teacher_note(teacher_id, student_id)
+    except Exception:
+        pass
+
+    memo_key = f"summary_memo_{student_id}"
+    goal_key = f"summary_goal_{student_id}"
+
+    default_goal = (existing_note or {}).get('goal', st.session_state.get(goal_key, ''))
+    default_memo = (existing_note or {}).get('memo', st.session_state.get(memo_key, ''))
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        new_goal = st.text_input(
+            "🎯 個別目標",
+            value=default_goal,
+            placeholder="例: TOEFL ITP 500点達成",
+            key=f"ts_goal_{student_id}"
+        )
+        new_memo = st.text_area(
+            "📝 メモ",
+            value=default_memo,
+            placeholder="観察メモ、指導方針など...",
+            height=100,
+            key=f"ts_memo_{student_id}"
+        )
+    with col2:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        if st.button("💾 保存", key=f"ts_save_{student_id}", use_container_width=True):
+            saved = False
+            try:
+                from utils.database import upsert_teacher_note
+                result = upsert_teacher_note(teacher_id, student_id,
+                                             memo=new_memo, goal=new_goal)
+                if result:
+                    saved = True
+            except Exception:
+                pass
+            st.session_state[memo_key] = new_memo
+            st.session_state[goal_key] = new_goal
+            if saved:
+                st.success("✅ 保存しました")
+            else:
+                st.warning("⚠️ セッションに保存しました")
+
+        if default_goal or default_memo:
+            st.markdown("**現在のメモ:**")
+            if default_goal:
+                st.caption(f"🎯 {default_goal}")
+            if default_memo:
+                st.caption(f"📝 {default_memo[:50]}{'...' if len(default_memo) > 50 else ''}")
 
 
 def show_portfolio_summary(student, student_id):
