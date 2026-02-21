@@ -153,10 +153,6 @@ if user:
                 if st.button("✏️ Writing", use_container_width=True):
                     st.session_state["current_view"] = "writing"
                     st.rerun()
-            if "vocabulary" in enabled:
-                if st.button("📚 Vocabulary", use_container_width=True):
-                    st.session_state["current_view"] = "vocabulary"
-                    st.rerun()
             if "reading" in enabled:
                 if st.button("📖 Reading", use_container_width=True):
                     st.session_state["current_view"] = "reading"
@@ -170,7 +166,10 @@ if user:
                     st.session_state["current_view"] = "test_prep"
                     st.rerun()
             st.markdown("---")
-            st.markdown("#### 📝 辞書")
+            st.markdown("#### 📝 辞書・語彙")
+            if st.button("📚 Vocabulary", use_container_width=True):
+                st.session_state["current_view"] = "vocabulary"
+                st.rerun()
             try:
                 from utils.dictionary import show_dictionary_popup
                 show_dictionary_popup(word_key="sidebar_dict")
