@@ -185,12 +185,13 @@ def show():
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "🎤 スピーキング評価",
         "✍️ ライティング評価",
         "📚 授業外学習",
         "📝 課題別設定",
         "🤖 AIフィードバック",
+        "📝 教材・プロンプト集",
     ])
 
     settings = _load_settings(course_id)
@@ -205,6 +206,8 @@ def show():
         show_assignment_settings(course_id, settings)
     with tab5:
         show_ai_feedback_settings(course_id, settings)
+    with tab6:
+        _tab_learning_resources(course_id)
 
 
 # ============================================================
@@ -898,3 +901,141 @@ def get_extracurricular_settings(course_id: str) -> dict:
         return s.get("extracurricular", _default_extracurricular())
     except Exception:
         return _default_extracurricular()
+
+
+# ============================================================
+# Tab 6: 教材・プロンプト集
+# ============================================================
+
+def _is_uuid(s: str) -> bool:
+    import re
+    return bool(re.match(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        str(s), re.IGNORECASE
+    ))
+
+
+def _tab_learning_resources(course_id: str):
+    st.markdown("### 📝 教材・プロンプト集管理")
+
+    if not _is_uuid(course_id):
+        st.info("⚠️ この機能はDBコース（UUID）でのみ利用できます。\n\n教員ホームからDBコースを選択してください。")
+        return
+
+    from utils.auth import get_current_user
+    user = get_current_user()
+    teacher_id = user.get("id", "") if user else ""
+
+    subtab1, subtab2, subtab3 = st.tabs(["📋 一覧・編集", "➕ 新規追加", "📥 一括インポート"])
+
+    with subtab1:
+        _resources_list(course_id)
+    with subtab2:
+        _resources_add(course_id, teacher_id)
+    with subtab3:
+        _resources_import(course_id, teacher_id)
+
+
+def _resources_list(course_id: str):
+    from utils.database import get_learning_resources, update_learning_resource, delete_learning_resource
+    resources = get_learning_resources(course_id=course_id)
+
+    if not resources:
+        st.info("まだプロンプト・教材が登録されていません。「➕ 新規追加」または「📥 一括インポート」から追加してください。")
+        return
+
+    st.success(f"{len(resources)} 件登録済み")
+
+    categories = sorted(set(r.get("category", "general") for r in resources))
+    sel_cat = st.selectbox("カテゴリで絞り込み", ["すべて"] + categories)
+
+    filtered = resources if sel_cat == "すべて" else [r for r in resources if r.get("category") == sel_cat]
+
+    for r in filtered:
+        with st.expander(f"{'✅' if r.get('is_active', True) else '🚫'} {r.get('title', '無題')} [{r.get('category','-')}]"):
+            new_title = st.text_input("タイトル", value=r.get("title",""), key=f"rt_{r['id']}")
+            new_desc  = st.text_area("説明", value=r.get("description",""), key=f"rd_{r['id']}", height=60)
+            new_content = st.text_area("プロンプト本文", value=r.get("content",""), key=f"rc_{r['id']}", height=120)
+            new_tip   = st.text_input("使い方ヒント", value=r.get("tip",""), key=f"rp_{r['id']}")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                new_cat = st.text_input("カテゴリ", value=r.get("category",""), key=f"rcat_{r['id']}")
+            with col2:
+                new_order = st.number_input("表示順", value=r.get("sort_order",0), key=f"ro_{r['id']}")
+            with col3:
+                st.write("")
+                if st.button("💾 保存", key=f"rsave_{r['id']}"):
+                    update_learning_resource(r["id"], {
+                        "title": new_title, "description": new_desc,
+                        "content": new_content, "tip": new_tip,
+                        "category": new_cat, "sort_order": int(new_order),
+                    })
+                    st.success("保存しました")
+                    st.rerun()
+                if st.button("🗑️ 削除", key=f"rdel_{r['id']}"):
+                    delete_learning_resource(r["id"])
+                    st.success("削除しました")
+                    st.rerun()
+
+
+def _resources_add(course_id: str, teacher_id: str):
+    from utils.database import create_learning_resource
+    st.markdown("#### ➕ プロンプト・教材を1件追加")
+    with st.form("add_resource_form"):
+        title    = st.text_input("タイトル *")
+        category = st.selectbox("カテゴリ", ["writing","conversation","vocabulary","test_prep","general_language","ai_usage","custom"])
+        desc     = st.text_area("説明", height=60)
+        content  = st.text_area("プロンプト本文 *", height=150)
+        tip      = st.text_input("使い方ヒント")
+        order    = st.number_input("表示順", min_value=0, value=0)
+        submitted = st.form_submit_button("💾 追加", use_container_width=True)
+
+    if submitted:
+        if not title or not content:
+            st.error("タイトルとプロンプト本文は必須です")
+        else:
+            result = create_learning_resource(
+                teacher_id=teacher_id, course_id=course_id,
+                resource_type="prompt", category=category,
+                title=title, description=desc, content=content,
+                tip=tip, sort_order=int(order),
+            )
+            if result:
+                st.success(f"「{title}」を追加しました")
+                st.rerun()
+            else:
+                st.error("追加に失敗しました")
+
+
+def _resources_import(course_id: str, teacher_id: str):
+    from utils.database import bulk_import_learning_resources
+    st.markdown("#### 📥 ハードコードプロンプトを一括インポート")
+    st.caption("learning_resources.pyに含まれるデフォルトプロンプトをDBに登録します。")
+
+    try:
+        from views.learning_resources import PROMPTS_BY_CATEGORY
+        categories = list(PROMPTS_BY_CATEGORY.keys())
+        sel = st.multiselect("インポートするカテゴリ", categories, default=categories)
+        if st.button("📥 インポート実行", type="primary"):
+            items = []
+            for cat in sel:
+                for p in PROMPTS_BY_CATEGORY.get(cat, []):
+                    items.append({
+                        "resource_type": "prompt",
+                        "category": cat,
+                        "title": p.get("title",""),
+                        "description": p.get("description",""),
+                        "content": p.get("content",""),
+                        "tip": p.get("tip",""),
+                        "sort_order": p.get("sort_order", 0),
+                    })
+            if items:
+                count = bulk_import_learning_resources(teacher_id, course_id, items)
+                st.success(f"✅ {count} 件インポートしました")
+                st.rerun()
+            else:
+                st.warning("インポート対象がありません")
+    except ImportError:
+        st.warning("learning_resources.pyが見つかりません。ファイルを確認してください。")
+    except AttributeError:
+        st.info("PROMPTS_BY_CATEGORYが定義されていません。個別追加タブをご利用ください。")
