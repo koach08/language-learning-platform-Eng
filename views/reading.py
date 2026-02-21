@@ -239,6 +239,12 @@ def show_reading_practice():
     """読解練習"""
     
     st.markdown("### 📖 記事を読む / Read Articles")
+
+    # クイズ中は全UI再描画をスキップして直接表示
+    if st.session_state.get('quiz_mode') and 'reading_questions' in st.session_state:
+        show_comprehension_quiz(st.session_state.reading_questions)
+        return
+
     
     # 記事選択
     articles = load_materials('reading')
