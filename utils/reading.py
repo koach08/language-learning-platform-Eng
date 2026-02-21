@@ -116,12 +116,19 @@ Level: {level}
 Article:
 {text}
 
+CRITICAL REQUIREMENT: Every question MUST be impossible to answer without reading this specific article.
+- Do NOT create questions about facts that educated people already know.
+- Do NOT create questions about obvious or universally known information.
+- ONLY create questions about specific details, numbers, names, sequences, or claims that are UNIQUE to this article.
+- If a student who has NOT read this article could guess correctly, the question is INVALID.
+
 RULES:
-1. Each statement must be verifiable ONLY by reading the article — not from general knowledge.
-2. Use paraphrase and synonyms — do NOT copy sentences directly from the article.
-3. False statements must contain ONE specific factual error (wrong number, reversed cause/effect, wrong subject).
-4. Distribute True and False answers roughly equally.
-5. Every question must include the exact quote from the article that proves the answer (text_evidence).
+1. Each statement must be verifiable ONLY by reading THIS specific article — general knowledge must be completely insufficient.
+2. Focus on: specific statistics, dates, names, locations, sequences, causes, or conclusions stated in THIS article.
+3. Use paraphrase and synonyms — do NOT copy sentences directly from the article.
+4. False statements must contain ONE specific factual error (wrong number, reversed cause/effect, wrong subject) from the article.
+5. Distribute True and False answers roughly equally.
+6. Every question must include the exact quote from the article that proves the answer (text_evidence).
 
 Output JSON:
 {{
@@ -139,12 +146,13 @@ Output JSON:
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are an expert EFL test designer. Respond in valid JSON only."},
+                {"role": "system", "content": "You are an expert EFL test designer. Every question must be impossible to answer without reading the provided article. Respond in valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
+            max_tokens=2000,
             response_format={"type": "json_object"}
         )
         result = json.loads(response.choices[0].message.content)
@@ -164,11 +172,17 @@ Level: {level}
 Article:
 {text}
 
+CRITICAL REQUIREMENT: Every question MUST be impossible to answer without reading this specific article.
+- Do NOT ask about things an educated person would already know.
+- ONLY ask about specific details unique to this article: exact numbers, specific names, particular sequences, or specific claims made by the author.
+- All 4 options must look plausible — wrong options should use content from the article but with key details changed.
+- A student who skimmed or didn't read this article should NOT be able to guess correctly.
+
 RULES:
-1. Focus on specific facts, numbers, sequences, or comparisons IN THIS article.
+1. Focus ONLY on specific facts, numbers, sequences, names, or comparisons stated IN THIS article.
 2. Correct answer must PARAPHRASE the article — not copy it verbatim.
-3. Wrong options: use words from the article but in incorrect combinations.
-4. Cannot be answered from general knowledge alone.
+3. Wrong options: use words from the article but change ONE key detail (wrong number, wrong person, wrong place).
+4. Absolutely cannot be answered from general knowledge alone.
 
 Output JSON:
 {{
@@ -187,12 +201,13 @@ Output JSON:
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are an expert EFL test designer. Respond in valid JSON only."},
+                {"role": "system", "content": "You are an expert EFL test designer. Every question must be impossible to answer without reading the provided article. Respond in valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
+            max_tokens=2000,
             response_format={"type": "json_object"}
         )
         result = json.loads(response.choices[0].message.content)
