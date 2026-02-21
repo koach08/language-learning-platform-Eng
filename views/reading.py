@@ -434,21 +434,21 @@ def show_comprehension_quiz(data):
         "not_mentioned": "NOT",
     }
 
-    if 'quiz_answers' not in st.session_state:
+    # 初期化（未設定の場合のみ）
+    if 'quiz_answers' not in st.session_state or not isinstance(st.session_state.quiz_answers, dict):
         st.session_state.quiz_answers = {}
     if 'quiz_submitted' not in st.session_state:
         st.session_state.quiz_submitted = False
 
     if not st.session_state.quiz_submitted:
+        answers = {}
         for i, q in enumerate(questions):
             q_type = q.get('type', 'detail')
             badge = TYPE_LABELS.get(q_type, q_type)
+            # 日本語訳は非表示（読まずに答えられるため）
             st.markdown(f"**Q{i+1}.** `{badge}` &nbsp; {q.get('question', '')}")
-            if q.get('question_ja'):
-                st.caption(q['question_ja'])
 
             if q_type == 'true_false':
-                # True/False は2択ラジオ
                 answer = st.radio(
                     "選択",
                     ["True", "False"],
@@ -457,17 +457,17 @@ def show_comprehension_quiz(data):
                     label_visibility="collapsed"
                 )
             else:
-                # 4択
                 answer = st.radio(
                     "選択 / Choose",
                     q.get('options', []),
                     key=f"reading_q_{i}",
                     label_visibility="collapsed"
                 )
-            st.session_state.quiz_answers[i] = answer
+            answers[i] = answer
             st.markdown("---")
 
         if st.button("📤 回答を送信 / Submit Answers", type="primary"):
+            st.session_state.quiz_answers = answers
             st.session_state.quiz_submitted = True
             st.rerun()
 
