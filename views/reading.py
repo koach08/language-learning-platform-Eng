@@ -221,6 +221,14 @@ def show_student_view():
 
     # クイズ中はタブを描画せず直接表示
     if st.session_state.get('quiz_mode') and 'reading_questions' in st.session_state:
+        # 記事テキストを上部に表示
+        current_article = st.session_state.get('current_article')
+        if current_article:
+            articles = load_materials('reading')
+            if articles and current_article in articles:
+                art = articles[current_article]
+                with st.expander("📰 記事を見ながら解答 / Read article while answering", expanded=False):
+                    st.markdown(art['text'])
         show_comprehension_quiz(st.session_state.reading_questions)
         return
 
