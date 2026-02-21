@@ -41,6 +41,8 @@ assignments = safe_import("assignments")
 grades = safe_import("grades")
 learning_log = safe_import("learning_log")
 test_prep = safe_import("test_prep")
+learning_resources = safe_import("learning_resources")
+material_manager = safe_import("material_manager")
 
 def get_student_enabled_modules(user):
     class_key = user.get("class_key")
@@ -176,6 +178,9 @@ if user:
             except Exception:
                 st.info("辞書機能を読み込み中...")
         st.markdown("---")
+        if st.button("🤖 学習リソース / AI活用", use_container_width=True):
+            st.session_state["current_view"] = "learning_resources"
+            st.rerun()
         if st.button("📘 使い方ガイド / Help", use_container_width=True):
             st.session_state["current_view"] = "help"
             st.rerun()
@@ -228,6 +233,8 @@ def main():
         "grades": grades.show if grades else teacher_home.show,
         "learning_log": learning_log.show if learning_log else student_home.show,
         "test_prep": test_prep.show if test_prep else student_home.show,
+        "learning_resources": learning_resources.show if learning_resources else student_home.show,
+        "material_manager": material_manager.show if material_manager else teacher_home.show,
     }
     views.get(view, student_home.show if user["role"] == "student" else teacher_home.show)()
 
