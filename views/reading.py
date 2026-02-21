@@ -218,7 +218,12 @@ def show_class_reading_progress():
 
 def show_student_view():
     """学生用"""
-    
+
+    # クイズ中はタブを描画せず直接表示
+    if st.session_state.get('quiz_mode') and 'reading_questions' in st.session_state:
+        show_comprehension_quiz(st.session_state.reading_questions)
+        return
+
     tab1, tab2, tab3 = st.tabs([
         "📖 記事を読む",
         "🤖 AI記事生成",
