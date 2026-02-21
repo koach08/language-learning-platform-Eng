@@ -551,8 +551,8 @@ def show_comprehension_quiz(data):
             st.session_state.quiz_saved = True
 
         # 記述式問題（B2以上）
-        essay_q = data.get('essay_question')
-        if data.get('has_essay') and essay_q:
+        essay_q = data.get('essay_question') if data.get('has_essay') else None
+        if essay_q and isinstance(essay_q, dict):
             st.markdown("---")
             st.markdown("### ✍️ 記述式問題 / Essay Question")
             st.markdown(f"**{essay_q.get('question', '')}**")
