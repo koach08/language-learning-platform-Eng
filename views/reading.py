@@ -362,6 +362,9 @@ def show_reading_practice():
                         st.session_state.reading_questions = questions
                         st.session_state.quiz_mode = True
                         st.session_state.quiz_exam_type = quiz_mode_choice
+                        st.session_state.quiz_answers = {}
+                        st.session_state.quiz_submitted = False
+                        st.session_state.quiz_saved = False
                         st.rerun()
                     else:
                         st.error(f"問題生成に失敗しました: {questions.get('error', '')}")
