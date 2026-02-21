@@ -2118,3 +2118,57 @@ def seed_default_materials() -> int:
         pass
 
     return count
+
+
+def get_student_reading_level(student_id: str, course_id: str = None) -> str:
+    """学生のリーディングレベルをクイズ履歴から自動判定
+    
+    ロジック:
+    - 履歴なし → B1（デフォルト）
+    - 直近3回の平均スコアで判定
+      80%以上 → 現レベルより1つ上
+      50%未満 → 現レベルより1つ下
+      その他  → 現レベル維持
+    """
+    supabase = get_supabase_client()
+    
+    LEVELS = ["A1", "A2", "B1", "B2", "C1"]
+    DEFAULT_LEVEL = "B1"
+    
+    try:
+        query = supabase.table('reading_logs')\
+            .select('quiz_score, estimated_level')\
+            .eq('student_id', student_id)\
+            .not_.is_('quiz_score', 'null')\
+            .order('completed_at', desc=True)\
+            .limit(3)
+        
+        if course_id:
+            query = query.eq('course_id', course_id)
+        
+        result = query.execute()
+        logs = result.data if result.data else []
+        
+        if not logs:
+            return DEFAULT_LEVEL
+        
+        scores = [l['quiz_score'] for l in logs if l.get('quiz_score') is not None]
+        if not scores:
+            return DEFAULT_LEVEL
+        
+        avg_score = sum(scores) / len(scores)
+        current_level = logs[0].get('estimated_level', DEFAULT_LEVEL)
+        if current_level not in LEVELS:
+            current_level = DEFAULT_LEVEL
+        
+        current_idx = LEVELS.index(current_level)
+        
+        if avg_score >= 80 and current_idx < len(LEVELS) - 1:
+            return LEVELS[current_idx + 1]
+        elif avg_score < 50 and current_idx > 0:
+            return LEVELS[current_idx - 1]
+        else:
+            return current_level
+            
+    except Exception:
+        return DEFAULT_LEVEL
