@@ -64,7 +64,7 @@ PRESET_MATERIALS = {
             "title": "Self-Introduction",
             "level": "A2",
             "duration": "2-3分",
-            "text": """Hello, my name is [Your Name]. I am a student at Hokkaido University. 
+            "text": """Hello, my name is [Your Name]. I am a student at [Your School]. 
 I am studying [Your Major] in the Faculty of [Your Faculty].
 I am from [Your Hometown] in [Your Prefecture].
 In my free time, I like to [Your Hobbies].
@@ -326,7 +326,7 @@ def show_preset_materials(level, user):
                 "Your Major": "例: Economics, Engineering",
                 "Your Faculty": "例: Letters, Science",
                 "Your Hometown": "例: Sapporo, Osaka",
-                "Your Prefecture": "例: Hokkaido, Tokyo",
+                "Your Prefecture": "例: Tokyo, Osaka",
                 "Your Hobbies": "例: play soccer, read manga, watch movies",
             }
             
@@ -1837,7 +1837,7 @@ def show_material_management():
             ]
         except Exception:
             st.session_state.speaking_materials = [
-                {"id": "default_1", "title": "Self Introduction", "level": "A2", "text": "Hello, my name is... I am a student at Hokkaido University. I am studying...", "category": "自己紹介"},
+                {"id": "default_1", "title": "Self Introduction", "level": "A2", "text": "Hello, my name is... I am a student at [Your School]. I am studying...", "category": "自己紹介"},
                 {"id": "default_2", "title": "Daily Routine", "level": "A2", "text": "I usually wake up at seven o'clock. After breakfast, I go to the university by bus...", "category": "日常"},
                 {"id": "default_3", "title": "Climate Change", "level": "B1", "text": "Climate change is one of the most pressing issues facing our world today. Rising temperatures...", "category": "社会問題"},
             ]

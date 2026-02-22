@@ -21,7 +21,7 @@ TEST_TYPES = {
             {"min": 460, "level": "B1", "desc": "中級"},
             {"min": 337, "level": "A2", "desc": "初中級"},
         ],
-        "description": "北海道大学の英語IIで受験必須。アカデミック英語力を測定。"
+        "description": "アカデミック英語力を測定。"
     },
     "toeic": {
         "name": "TOEIC L&R",
