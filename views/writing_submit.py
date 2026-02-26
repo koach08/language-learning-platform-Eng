@@ -16,6 +16,18 @@ from utils.database import (
 
 @require_auth
 def show():
+    with st.expander("📖 このページの使い方（クリックで開く）", expanded=False):
+        st.markdown("""
+**✍️ ライティングの使い方**
+
+① お題（テーマ）を確認する  
+② 英語で文章を書いて入力欄に貼り付ける  
+③ 「提出」ボタンを押す  
+④ AIが文法・内容・表現を採点してコメントをくれる  
+⑤ コメントを読んで、書き直してみよう  
+
+> ⚠️ 一度提出すると修正できません。よく確認してから提出してください。
+""")
     user = get_current_user()
     
     st.markdown("## ✍️ ライティング / Writing")
